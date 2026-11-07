@@ -148,6 +148,8 @@ const P = {
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
   leave: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  bellRing: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/>',
+  volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
 };
 export function icon(name, cls = '') {
   const s = document.createElement('span');
@@ -329,24 +331,70 @@ export function previewText(kind, body) {
     case 'audio': return '🎤 رسالة صوتية';
     case 'video': return '🎬 فيديو';
     case 'game': return '🎮 تحدّي لعبة';
+    case 'buzz': return '🔔 تنبيه!';
     case 'system': return body || '';
     default: return '';
   }
 }
 
-// صوت تنبيه خفيف
+// ---------- أصوات التنبيه ----------
+// المستوى: loud (قوي، الافتراضي) | normal (عادي) | off (بدون)
+export function soundLevel() { try { return localStorage.getItem('fc_sound') || 'loud'; } catch { return 'loud'; } }
+export function setSoundLevel(v) { try { localStorage.setItem('fc_sound', v); } catch { /* ignore */ } }
+
 let actx;
-export function ding() {
+function audio() {
+  actx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  return actx;
+}
+// المتصفحات تحتاج لمسة من المستخدم قبل تشغيل الصوت
+['pointerdown', 'keydown', 'touchstart'].forEach((ev) => addEventListener(ev, () => { try { audio(); } catch { /* ignore */ } }, { once: true, passive: true }));
+
+function tone(ctx, freq, start, dur, gain, type = 'sine') {
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, start);
+  g.gain.setValueAtTime(0.0001, start);
+  g.gain.exponentialRampToValueAtTime(gain, start + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g).connect(ctx.destination); o.start(start); o.stop(start + dur + 0.02);
+}
+
+/** نغمة رسالة جديدة (3 نغمات واضحة) */
+export function playMessageSound() {
+  const lvl = soundLevel();
+  if (lvl === 'off') return;
   try {
-    actx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const o = actx.createOscillator(); const g = actx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(880, actx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(1320, actx.currentTime + 0.12);
-    g.gain.setValueAtTime(0.0001, actx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.15, actx.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.3);
-    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.32);
+    const ctx = audio(); const t = ctx.currentTime; const vol = lvl === 'loud' ? 0.9 : 0.3;
+    [[784, 0], [988, 0.11], [1319, 0.22]].forEach(([f, d]) => {
+      tone(ctx, f, t + d, 0.28, vol, 'triangle');
+      tone(ctx, f * 2, t + d, 0.18, vol * 0.25, 'sine');
+    });
+    if (lvl === 'loud') navigator.vibrate?.([180, 80, 180]);
   } catch { /* ignore */ }
+}
+
+/** رنّة التنبيه القوية (تتكرر لين يوقفها المستخدم) — ترجع دالة الإيقاف */
+export function startRingtone(maxSec = 15) {
+  if (soundLevel() === 'off') { navigator.vibrate?.([500, 200, 500]); return () => {}; }
+  let stopped = false; let timer;
+  const ring = () => {
+    if (stopped) return;
+    try {
+      const ctx = audio(); const t = ctx.currentTime;
+      for (let i = 0; i < 6; i++) {
+        tone(ctx, i % 2 ? 1175 : 1568, t + i * 0.09, 0.09, 1, 'square');
+        tone(ctx, i % 2 ? 587 : 784, t + i * 0.09, 0.09, 0.5, 'triangle');
+      }
+      for (let i = 0; i < 6; i++) tone(ctx, i % 2 ? 1175 : 1568, t + 0.75 + i * 0.09, 0.09, 1, 'square');
+    } catch { /* ignore */ }
+    navigator.vibrate?.([600, 200, 600]);
+    timer = setTimeout(ring, 2000);
+  };
+  ring();
+  const end = setTimeout(() => stop(), maxSec * 1000);
+  function stop() { stopped = true; clearTimeout(timer); clearTimeout(end); navigator.vibrate?.(0); }
+  return stop;
 }
 
 // اختيار الأفاتار

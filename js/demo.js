@@ -59,11 +59,16 @@ export function createDemoClient(role, supabaseUrl) {
     M('c-grp', 'f1', 'text', 120, { body: 'مين يجي يلعب كورة العصر؟ ⚽' }),
     M('c-grp', 'k2', 'sticker', 118, { meta: { t: 'emoji', v: '🙋‍♀️' } }),
     M('c-grp', 'k1', 'text', 117, { body: 'أنا أكيد' }),
+    M('c-dm1', 'p1', 'buzz', 8),
+    M('c-dm2', 'f1', 'video', 3, { media_path: 'c-dm2/clip.mp4', meta: { duration: 12 } }),
   ];
   const views = [];
   const reads = {};
 
   const games = {
+    g4: { id: 'g4', conversation_id: 'c-dm2', kind: 'dots', players: ['k1', 'f1'], state: { h: ['0', '0', '', '1', '', '', '', '1', '', '', '', ''], v: ['0', '1', '', '', '', '', '', '', '', '', '', ''], boxes: ['0', '', '', '', '', '', '', '', ''] }, turn: 'k1', winner: null, status: 'active', updated_at: ago(15) },
+    g5: { id: 'g5', conversation_id: 'c-dm2', kind: 'guess', players: ['k1', 'f1'], state: { history: [{ by: 'k1', n: 50, hint: 'down' }, { by: 'f1', n: 25, hint: 'up' }, { by: 'k1', n: 37, hint: 'up' }], low: 38, high: 49 }, turn: 'f1', winner: null, status: 'active', updated_at: ago(14) },
+    g6: { id: 'g6', conversation_id: 'c-dm2', kind: 'quiz', players: ['k1', 'f1'], state: { q: [0, 3, 7, 12, 20, 25, 31], results: { f1: { score: 5, ms: 41000 } } }, turn: null, winner: null, status: 'active', updated_at: ago(13) },
     g1: { id: 'g1', conversation_id: 'c-dm2', kind: 'xo', players: ['k1', 'f1'], state: { board: ['X', '', 'O', '', 'X', '', '', 'O', ''] }, turn: 'k1', winner: null, status: 'active', updated_at: ago(25) },
     g2: { id: 'g2', conversation_id: 'c-dm1', kind: 'connect4', players: ['p1', 'k1'], state: { board: Array.from({ length: 42 }, (_, i) => ({ 38: 'R', 37: 'Y', 31: 'R', 39: 'Y', 36: 'R', 30: 'Y' })[i] || '') }, turn: 'p1', winner: null, status: 'active', updated_at: ago(90) },
     g3: { id: 'g3', conversation_id: 'c-dm1', kind: 'rps', players: ['p1', 'k1'], state: { round: 5, moves: {}, score: { k1: 3, p1: 1 }, last: { p1: 'rock', k1: 'paper', winner: 'k1' } }, turn: null, winner: 'k1', status: 'done', updated_at: ago(2000) },
@@ -165,8 +170,10 @@ export function createDemoClient(role, supabaseUrl) {
     open_view_once: ({ p_msg }) => {
       const m = messages.find((x) => x.id === p_msg);
       if (!canMonitor(m.conversation_id) && m.sender_id !== meId) {
-        if (views.some((v) => v.message_id === p_msg && v.profile_id === meId)) throw new Error('شفته من قبل 👀 ينشاف مرة وحدة بس');
-        views.push({ message_id: p_msg, profile_id: meId });
+        const v = views.find((x) => x.message_id === p_msg && x.profile_id === meId);
+        const max = m.kind === 'video' ? 2 : 1;
+        if (v && v.views >= max) throw new Error('خلصت مرات المشاهدة 👀');
+        if (v) v.views++; else views.push({ message_id: p_msg, profile_id: meId, views: 1 });
       }
       return m.media_path;
     },
@@ -191,6 +198,8 @@ export function createDemoClient(role, supabaseUrl) {
       return null;
     },
     game_rps: () => null,
+    game_guess: ({ p_game, p_guess }) => { const g = games[p_game]; const s = 42; const hint = p_guess === s ? 'hit' : p_guess < s ? 'up' : 'down'; g.state.history.push({ by: meId, n: p_guess, hint }); if (hint === 'up') g.state.low = p_guess + 1; if (hint === 'down') g.state.high = p_guess - 1; if (hint === 'hit') Object.assign(g, { winner: meId, status: 'done', state: { ...g.state, secret: s } }); else g.turn = g.players.find((x) => x !== meId); fire('games', g); return null; },
+    game_quiz: ({ p_game, p_score, p_ms }) => { const g = games[p_game]; g.state.results[meId] = { score: p_score, ms: p_ms }; const o = g.state.results.f1; Object.assign(g, { status: 'done', winner: p_score > o.score || (p_score === o.score && p_ms < o.ms) ? meId : 'f1' }); fire('games', g); return null; },
     remove_message: ({ p_msg }) => { const m = messages.find((x) => x.id === p_msg); Object.assign(m, { body: null, media_path: null, meta: {}, removed_by: meId }); return null; },
   };
 
@@ -218,7 +227,10 @@ export function createDemoClient(role, supabaseUrl) {
     then(res, rej) { return delay(this.exec()).then(res, rej); }
   }
 
-  const channel = { on() { return channel; }, subscribe() { return channel; } };
+  const handlers = [];
+  function fire(table, row, event = 'UPDATE') { handlers.filter((h) => h.table === table && (h.event === '*' || h.event === event)).forEach((h) => h.fn({ new: JSON.parse(JSON.stringify(row)) })); }
+  const channel = { on(_t, f, fn) { handlers.push({ table: f.table, event: f.event, fn }); return channel; }, subscribe() { return channel; } };
+  if (new URLSearchParams(location.search).get('buzz')) setTimeout(() => { const m = M('c-dm1', 'p1', 'buzz', 0); messages.push(m); fire('messages', m, 'INSERT'); }, 1500);
 
   return {
     auth: {

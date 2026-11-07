@@ -1,7 +1,7 @@
 import {
   sb, S, bus, rpc, el, icon, toast, guard, sheet, ask, go, goRoot, back, av, empty, spinner, skeletonRows, copy, fmtTime,
   configured, APP_NAME, DEMO, avatarPicker, field, previewText, debounce, toLatinDigits, addCleanup, runCleanup, niceError,
-  ding, navbar, settingRow, closeTopOverlay,
+  playMessageSound, startRingtone, soundLevel, setSoundLevel, navbar, settingRow, closeTopOverlay, pushOverlay,
 } from './lib.js';
 import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
@@ -31,7 +31,8 @@ async function boot() {
   // منع زر الرجوع حق الجوال/المتصفح من التنقل: يقفل النوافذ المفتوحة فقط
   history.replaceState({ trap: 0 }, '', location.href);
   history.pushState({ trap: 1 }, '', location.href);
-  addEventListener('popstate', () => {
+  addEventListener('popstate', (e) => {
+    if (e.state?.trap === undefined) return; // تغيير رابط من برا (يتعامل معه hashchange)
     history.pushState({ trap: 1 }, '', location.pathname + location.search + '#' + S.path);
     closeTopOverlay();
   });
@@ -118,8 +119,9 @@ async function onNewMessage(m) {
   if (!S.me || m.sender_id === S.me.id || m.kind === 'system') return;
   if (!S.memberConvs.has(m.conversation_id)) await refreshMemberConvs();
   if (!S.memberConvs.has(m.conversation_id)) return; // محادثة مراقبة فقط
+  if (m.kind === 'buzz') return buzzAlert(m);
   if (S.currentConv === m.conversation_id && !document.hidden) return;
-  ding();
+  playMessageSound();
   const text = (previewText(m.kind, m.body) || '').slice(0, 70);
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
     try {
@@ -132,6 +134,33 @@ async function onNewMessage(m) {
   }
 }
 
+// تنبيه قوي: رنّة + اهتزاز + شاشة كاملة لين المستخدم يضغط
+let buzzOpen = false;
+async function buzzAlert(m) {
+  if (buzzOpen) return;
+  buzzOpen = true;
+  let who = { name: 'أحد', avatar: '🔔' };
+  try { const info = await rpc('conversation_info', { p_conv: m.conversation_id }); who = info.members.find((x) => x.id === m.sender_id) || who; } catch { /* ignore */ }
+  const stop = startRingtone(20);
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      reg?.showNotification(`🔔 ${who.name} ينبهك!`, { body: 'افتح التطبيق', tag: 'buzz', renotify: true, requireInteraction: true, vibrate: [600, 200, 600, 200, 600], data: { url: '#/chat/' + m.conversation_id } });
+    } catch { /* ignore */ }
+  }
+  let unreg = () => {};
+  const close = (open) => { stop(); unreg(); wrap.remove(); buzzOpen = false; if (open) go('/chat/' + m.conversation_id); };
+  const wrap = el('div', { class: 'buzz-screen', role: 'alertdialog', 'aria-label': 'تنبيه' },
+    el('div', { class: 'buzz-center' }, el('div', { class: 'buzz-rings' }, el('i'), el('i'), el('i')), el('span', { class: 'av xxl buzz-av' }, who.avatar)),
+    el('h1', null, who.name),
+    el('p', null, 'ينبهك! 🔔'),
+    el('div', { class: 'buzz-actions' },
+      el('button', { class: 'btn glass lg', onclick: () => close(false) }, 'إيقاف'),
+      el('button', { class: 'btn lg buzz-open', onclick: () => close(true) }, icon('chat'), 'فتح المحادثة')));
+  document.body.append(wrap);
+  unreg = pushOverlay(() => close(false));
+}
+
 function banner(text, onclick) {
   const b = el('button', { class: 'msg-banner', onclick: () => { b.remove(); onclick(); } },
     el('span', { class: 'banner-ic' }, icon('chat')),
@@ -141,12 +170,12 @@ function banner(text, onclick) {
   setTimeout(() => { b.classList.remove('show'); setTimeout(() => b.remove(), 300); }, 4500);
 }
 
-// تنظيف الوسائط القديمة (أكثر من 7 أيام) — مرة كل 12 ساعة من جهاز الأهل
+// تنظيف الوسائط القديمة (أكثر من 24 ساعة) — من أي جهاز، مرة كل ساعتين
 async function maybeCleanupMedia() {
-  if (S.me.role !== 'parent' || DEMO) return;
+  if (DEMO) return;
   let last = 0;
   try { last = +localStorage.getItem('fc_cleanup') || 0; } catch { /* ignore */ }
-  if (Date.now() - last < 12 * 3600e3) return;
+  if (Date.now() - last < 2 * 3600e3) return;
   try { localStorage.setItem('fc_cleanup', String(Date.now())); } catch { /* ignore */ }
   try {
     const rows = await rpc('expired_media');
@@ -507,12 +536,16 @@ async function tabGames() {
     if (!g.winner) return ['تعادل', ''];
     return g.winner === S.me.id ? ['فزت', 'ok'] : ['خسرت', 'danger'];
   };
+  const tiles = (set, solo) => el('div', { class: 'game-grid' }, Object.entries(set).map(([kind, g]) =>
+    el('button', { class: 'game-tile', style: { '--g1': g.colors[0], '--g2': g.colors[1] }, onclick: () => (solo ? go('/game/' + kind) : guard(() => pickOpponent(kind))) },
+      el('span', { class: 'gt-ic' }, g.icon),
+      el('div', null, el('b', null, g.name), el('small', null, g.desc)),
+      el('span', { class: 'gt-go' }, solo ? 'العب' : 'تحدَّ'))));
+  void all;
   return [
-    el('div', { class: 'game-grid' }, Object.entries(all).map(([kind, g]) =>
-      el('button', { class: 'game-tile', style: { '--g1': g.colors[0], '--g2': g.colors[1] }, onclick: () => (SOLO[kind] ? go('/game/' + kind) : guard(() => pickOpponent(kind))) },
-        el('span', { class: 'gt-ic' }, g.icon),
-        el('div', null, el('b', null, g.name), el('small', null, g.desc)),
-        el('span', { class: 'gt-go' }, SOLO[kind] ? 'العب' : 'تحدَّ')))),
+    el('h2', { class: 'sec-title' }, 'تحدَّ أصدقاءك'),
+    tiles(GAMES, false),
+    section('العب لحالك', tiles(SOLO, true)),
     section('آخر الألعاب', games.length ? el('div', { class: 'list' }, games.map((g) => {
       const [label, tone] = status(g);
       return el('button', { class: 'row', onclick: () => go('/game/' + g.id) },
@@ -735,6 +768,8 @@ async function tabMe() {
       el('button', { class: 'btn soft sm', onclick: () => editProfile() }, icon('edit'), 'تعديل')),
     el('div', { class: 'list' },
       settingRow({ ic: 'key', tone: 'violet', title: 'رقمك التعريفي', sub: 'أعطه لأصدقائك عشان يضيفونك', end: el('b', { class: 'mono', dir: 'ltr' }, S.me.code), onclick: () => copy(S.me.code) }),
+      settingRow({ ic: 'volume', tone: 'blue', title: 'صوت التنبيه', sub: 'للرسائل الجديدة',
+        end: el('span', { class: 'pill accent' }, { loud: 'قوي', normal: 'عادي', off: 'بدون' }[soundLevel()]), onclick: soundSheet }),
       notifRow, installRow),
     el('div', { class: 'list' },
       settingRow({ ic: 'logout', tone: 'red', title: 'تسجيل خروج', onclick: async () => {
@@ -743,6 +778,17 @@ async function tabMe() {
       } })),
     el('p', { class: 'center muted small' }, `${APP_NAME} · نسخة 1.1`),
   ];
+}
+
+function soundSheet() {
+  const opts = [['loud', 'قوي', 'صوت عالي + اهتزاز'], ['normal', 'عادي', 'صوت هادي'], ['off', 'بدون صوت', 'اهتزاز للتنبيه القوي بس']];
+  const close = sheet('صوت التنبيه', el('div', { class: 'stack' },
+    el('div', { class: 'list flat' }, opts.map(([v, t, s]) => settingRow({
+      ic: v === 'off' ? 'x' : 'volume', tone: v === soundLevel() ? 'violet' : '', title: t, sub: s,
+      end: v === soundLevel() ? icon('check') : el('span'),
+      onclick: () => { setSoundLevel(v); playMessageSound(); close(); bus.emit('refresh-tab'); },
+    }))),
+    el('button', { class: 'btn soft block', onclick: () => { const stop = startRingtone(3); setTimeout(stop, 3000); } }, icon('bellRing'), 'جرّب رنّة التنبيه القوي')));
 }
 
 function editProfile() {

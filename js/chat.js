@@ -49,7 +49,10 @@ export async function renderChat(app, convId) {
     title, subtitle, avatar,
     onBack: () => back('/'),
     onTitle: () => membersSheet(),
-    actions: info.is_member ? [el('button', { class: 'icon-btn', 'aria-label': 'تحدّي بلعبة', onclick: () => gameSheet() }, icon('game'))] : [],
+    actions: info.is_member ? [
+      el('button', { class: 'icon-btn', 'aria-label': 'تنبيه قوي', title: 'تنبيه قوي', onclick: () => sendBuzz() }, icon('bellRing')),
+      el('button', { class: 'icon-btn', 'aria-label': 'تحدّي بلعبة', onclick: () => gameSheet() }, icon('game')),
+    ] : [],
   });
   const composerHost = el('div', { class: 'composer-host' });
   app.replaceChildren(el('div', { class: 'chat' + (watching ? ' watching' : '') }, header, scroller, composerHost));
@@ -58,6 +61,7 @@ export async function renderChat(app, convId) {
   const msgs = [];
   const nodes = new Map();
   const views = new Map(); // messageId -> Set(profileId)
+  const myViews = new Map(); // messageId -> عدد مرات مشاهدتي
 
   scroller.append(spinner());
   const { data: rows, error } = await sb.from('messages').select('*')
@@ -66,8 +70,12 @@ export async function renderChat(app, convId) {
   rows.reverse().forEach((m) => msgs.push(m));
   const onceIds = msgs.filter((m) => m.view_once).map((m) => m.id);
   if (onceIds.length) {
-    const { data: v } = await sb.from('message_views').select('message_id, profile_id').in('message_id', onceIds);
-    (v || []).forEach((x) => { if (!views.has(x.message_id)) views.set(x.message_id, new Set()); views.get(x.message_id).add(x.profile_id); });
+    const { data: v } = await sb.from('message_views').select('message_id, profile_id, views').in('message_id', onceIds);
+    (v || []).forEach((x) => {
+      if (!views.has(x.message_id)) views.set(x.message_id, new Set());
+      views.get(x.message_id).add(x.profile_id);
+      if (x.profile_id === S.me.id) myViews.set(x.message_id, x.views || 1);
+    });
   }
 
   let lastDay = '';
@@ -137,6 +145,10 @@ export async function renderChat(app, convId) {
   // ---------- رسم رسالة ----------
   function renderMsg(m, grouped) {
     if (m.kind === 'system') return el('div', { class: 'sys' }, el('span', null, m.body || ''));
+    if (m.kind === 'buzz') {
+      const who = m.sender_id === S.me.id ? 'نبّهت' : `${members.get(m.sender_id)?.name || 'أحد'} نبّه`;
+      return el('div', { class: 'sys buzz-msg' }, el('span', null, icon('bellRing'), `${who} · ${fmtClock(m.created_at)}`));
+    }
     const sender = members.get(m.sender_id);
     // في وضع المراقبة: رسائل طفلي على اليسار بلون مختلف
     const myKid = watching && sender?.role === 'child' && sender?.family_id === S.me.family_id;
@@ -252,28 +264,48 @@ export async function renderChat(app, convId) {
     const dur = m.meta?.duration ? fmtDur(m.meta.duration) : '';
     const seen = views.get(m.id) || new Set();
     const seenByOthers = [...seen].filter((id) => id !== m.sender_id);
-    const chip = (cls, sub, onclick) => el(onclick ? 'button' : 'div', { class: 'media-chip ' + cls, onclick: onclick || null },
-      el('span', { class: 'mc-ic' }, icon(ic), cls.includes('fresh') ? el('span', { class: 'once-badge' }, '1') : null),
+    const chip = (cls, sub, onclick, badge) => el(onclick ? 'button' : 'div', { class: 'media-chip ' + cls, onclick: onclick || null },
+      el('span', { class: 'mc-ic' }, icon(ic), badge ? el('span', { class: 'once-badge' }, String(badge)) : null),
       el('span', { class: 'mc-txt' }, el('b', null, label + (dur ? ` · ${dur}` : '')), el('small', null, sub)));
 
     if (m.media_expired || !m.media_path) return chip('off', 'انتهت مدته');
     if (info.monitor) {
       return chip('monitor', isDirect ? (seenByOthers.length ? 'انشافت · اضغط للعرض' : 'ما انفتحت · اضغط للعرض') : 'اضغط للعرض', () => openMedia(m, false));
     }
-    if (mine) return chip('sent', isDirect ? (seenByOthers.length ? 'انشافت' : 'مرة وحدة · ما انفتحت') : `شافها ${seenByOthers.length}`);
-    if (seen.has(S.me.id)) return chip('off', 'تمت المشاهدة');
-    return chip('fresh', 'اضغط للمشاهدة · مرة وحدة', () => openMedia(m, true));
+    const maxViews = m.kind === 'video' ? 2 : 1;
+    const used = myViews.get(m.id) || (seen.has(S.me.id) ? 1 : 0);
+    const limitText = maxViews === 2 ? 'تنشاف مرتين' : 'مرة وحدة';
+    if (mine) return chip('sent', isDirect ? (seenByOthers.length ? 'انشافت' : `${limitText} · ما انفتحت`) : `شافها ${seenByOthers.length}`);
+    if (used >= maxViews) return chip('off', 'تمت المشاهدة');
+    const left = maxViews - used;
+    return chip('fresh', `اضغط للمشاهدة · ${left === maxViews ? limitText : 'باقي مرة وحدة'}`, () => openMedia(m, true, left), left);
   }
 
-  function openMedia(m, once) {
+  function openMedia(m, once, left = 1) {
     guard(async () => {
-      if (once && !(await ask('تنشاف مرة وحدة بس', { ok: 'افتح الحين', detail: 'بعد ما تقفلها ما تقدر تفتحها مرة ثانية' }))) return;
+      if (once) {
+        const ok = await ask(left > 1 ? 'تقدر تشوفه مرتين' : 'آخر مرة تشوفها 👀', {
+          ok: 'افتح الحين',
+          detail: left > 1 ? 'بعد المرة الثانية يختفي نهائياً' : 'بعد ما تقفلها تختفي نهائياً',
+        });
+        if (!ok) return;
+      }
       const path = await rpc('open_view_once', { p_msg: m.id });
-      if (once) { if (!views.has(m.id)) views.set(m.id, new Set()); views.get(m.id).add(S.me.id); }
+      if (once) {
+        if (!views.has(m.id)) views.set(m.id, new Set());
+        views.get(m.id).add(S.me.id);
+        myViews.set(m.id, (myViews.get(m.id) || 0) + 1);
+      }
       const { data, error: e } = await sb.storage.from('media').createSignedUrl(path, 180);
       if (e) throw e;
-      viewer(m.kind, data.signedUrl, once, () => replaceMsg(m));
+      viewer(m.kind, data.signedUrl, once ? left - 1 : null, () => replaceMsg(m));
     });
+  }
+
+  async function sendBuzz() {
+    if (S.me.muted || S.me.in_quiet) return toast('ما تقدر تنبّه الحين', 'err');
+    if (!(await ask('ترسل تنبيه قوي؟', { ok: 'نبّه', detail: 'جوال الطرف الثاني بيرن ويهتز لين يشوفه' }))) return;
+    guard(async () => { const row = await sendRpc('buzz'); addMsg(row); toast('تم التنبيه 🔔', 'ok'); });
   }
 
   function gameCard(m, mine) {
@@ -522,7 +554,7 @@ export async function renderChat(app, convId) {
     const startCam = async () => {
       stream?.getTracks().forEach((t) => t.stop());
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } }, audio: true,
+        video: { facingMode: facing, width: { ideal: 480 }, height: { ideal: 854 }, frameRate: { ideal: 24 } }, audio: true,
       });
       video.srcObject = stream; video.controls = false; video.muted = true; video.removeAttribute('src');
       video.classList.toggle('mirror', facing === 'user');
@@ -534,7 +566,7 @@ export async function renderChat(app, convId) {
     recBtn.onclick = () => {
       if (rec?.state === 'recording') { rec.stop(); return; }
       const mime = pickMime(['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']);
-      rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 64000 });
+      rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: 600_000, audioBitsPerSecond: 48000 });
       chunks = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       rec.onstop = () => {
@@ -621,6 +653,7 @@ export async function renderChat(app, convId) {
 // =============================================================
 //  أدوات الوسائط
 // =============================================================
+/** once: null = مراقبة، رقم = عدد المرات الباقية بعد هذي المشاهدة */
 function viewer(kind, url, once, onClose) {
   let media;
   if (kind === 'image') media = el('img', { class: 'viewer-media', src: url, alt: '', draggable: 'false' });
@@ -630,7 +663,10 @@ function viewer(kind, url, once, onClose) {
   const wrap = el('div', { class: 'viewer', oncontextmenu: (e) => e.preventDefault() },
     el('button', { class: 'viewer-x', 'aria-label': 'إغلاق', onclick: close }, icon('x')),
     media,
-    el('div', { class: 'viewer-note' }, once ? [el('span', { class: 'once-badge' }, '1'), 'تنشاف مرة وحدة — بعد ما تقفل ما ترجع'] : [icon('eye'), 'عرض المراقبة']));
+    el('div', { class: 'viewer-note' }, once === null || once === undefined
+      ? [icon('eye'), 'عرض المراقبة']
+      : once > 0 ? [el('span', { class: 'once-badge' }, String(once)), 'باقي لك مشاهدة وحدة بعد هذي']
+        : [el('span', { class: 'once-badge' }, '0'), 'آخر مشاهدة — بعد ما تقفل يختفي']));
   document.body.append(wrap);
   unreg = pushOverlay(close);
   addCleanup(() => { unreg(); wrap.remove(); });
