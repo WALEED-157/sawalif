@@ -3,6 +3,7 @@ import {
   configured, APP_NAME, DEMO, avatarPicker, field, previewText, debounce, toLatinDigits, addCleanup, runCleanup, niceError,
   playMessageSound, startRingtone, soundLevel, setSoundLevel, navbar, settingRow, closeTopOverlay, pushOverlay,
 } from './lib.js';
+import { CONFIG } from './config.js';
 import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
 
@@ -16,7 +17,9 @@ async function boot() {
   document.title = APP_NAME;
   if (!configured) return notConfigured();
   if ('serviceWorker' in navigator && !DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
-  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installPrompt = e; });
+  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installPrompt = e; setInstalled(false); });
+  addEventListener('appinstalled', () => { S.installPrompt = null; setInstalled(true); if (S.path === '/me') bus.emit('refresh-tab'); });
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) setInstalled(true);
 
   const hadAuthHash = /access_token=|error_description=|type=recovery/.test(location.hash);
   const errMatch = location.hash.match(/error_description=([^&]+)/);
@@ -51,6 +54,10 @@ async function boot() {
   route();
 }
 
+// نتذكر إن التطبيق متثبّت عشان زر التثبيت يختفي حتى لو انفتح من المتصفح
+function appInstalled() { try { return localStorage.getItem('fc_installed') === '1'; } catch { return false; } }
+function setInstalled(v) { try { v ? localStorage.setItem('fc_installed', '1') : localStorage.removeItem('fc_installed'); } catch { /* ignore */ } }
+
 function parsePath() {
   const [path, qs] = (S.path || '/').split('?');
   return { parts: path.split('/').filter(Boolean), params: new URLSearchParams(qs || '') };
@@ -67,6 +74,8 @@ async function route() {
     if (!S.me) S.me = await rpc('my_profile');
     if (seq !== routeSeq) return;
     if (!S.me) return S.session.user.is_anonymous ? renderAnonNoProfile() : renderOnboarding();
+    if (notifGateNeeded()) return renderNotifGate();
+    ensurePush();
     startRealtime();
     maybeCleanupMedia();
 
@@ -92,6 +101,115 @@ async function route() {
         el('button', { class: 'btn primary', onclick: () => route() }, 'حاول مرة ثانية'),
         el('button', { class: 'btn soft', onclick: () => goRoot('/') }, 'الرئيسية')))));
   }
+}
+
+// =============================================================
+//  اشتراك Push: يربط الجهاز بالسيرفر عشان الإشعارات توصل والتطبيق مقفل
+// =============================================================
+let pushDone = false;
+let pushActive = false;
+const b64ToBytes = (s) => {
+  const raw = atob((s + '='.repeat((4 - (s.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+};
+async function ensurePush() {
+  if (pushDone || DEMO || !CONFIG.VAPID_PUBLIC_KEY) return;
+  pushDone = true;
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    const key = b64ToBytes(CONFIG.VAPID_PUBLIC_KEY);
+    // اشتراك قديم بمفتاح ثاني؟ نجدده
+    if (sub && sub.options?.applicationServerKey) {
+      const old = new Uint8Array(sub.options.applicationServerKey);
+      if (old.length !== key.length || old.some((v, i) => v !== key[i])) { await sub.unsubscribe(); sub = null; }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const j = sub.toJSON();
+    await rpc('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    pushActive = true;
+  } catch (e) { console.warn('push subscribe failed', e); pushDone = false; }
+}
+async function dropPush() {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    const sub = await reg?.pushManager?.getSubscription();
+    if (sub) { await rpc('delete_push_subscription', { p_endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); }
+  } catch { /* ignore */ }
+}
+
+// =============================================================
+//  شاشة إجبارية: تفعيل التنبيهات قبل استخدام التطبيق
+// =============================================================
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function notifGateNeeded() {
+  if (DEMO) return new URLSearchParams(location.search).has('gate') && !window.__gatePassed;
+  if ('Notification' in window) return Notification.permission !== 'granted';
+  return isIOS() && !isStandalone(); // آيفون في Safari: لازم يضيفه للشاشة الرئيسية أول
+}
+
+let gateWatch = false;
+function watchPermission() {
+  if (gateWatch) return; gateWatch = true;
+  // لما يرجع من الإعدادات بعد ما فعّلها، يكمل تلقائياً
+  const recheck = () => { if (!document.hidden && S.me && !notifGateNeeded() && app.querySelector('.notif-gate')) route(); };
+  document.addEventListener('visibilitychange', recheck);
+  navigator.permissions?.query({ name: 'notifications' }).then((p) => { p.onchange = recheck; }).catch(() => {});
+}
+
+function renderNotifGate() {
+  watchPermission();
+  const kid = S.me.role !== 'parent';
+  const state = DEMO ? (window.__demoPerm || 'default') : ('Notification' in window ? Notification.permission : 'install');
+  const step = (n, t) => el('div', { class: 'gate-step' }, el('b', null, n), el('span', null, t));
+  let body;
+
+  if (state === 'install') {
+    body = [
+      el('h2', null, 'أضف التطبيق للشاشة الرئيسية'),
+      el('p', { class: 'muted' }, 'في الآيفون التنبيهات ما تشتغل إلا بعد إضافة التطبيق للشاشة الرئيسية.'),
+      el('div', { class: 'gate-steps' },
+        step('1', 'اضغط زر المشاركة ⬆️ تحت في Safari'),
+        step('2', 'اختر «إضافة إلى الشاشة الرئيسية»'),
+        step('3', 'افتح التطبيق من الأيقونة الجديدة')),
+    ];
+  } else if (state === 'denied') {
+    const steps = isIOS()
+      ? [step('1', 'افتح «الإعدادات» في الجوال'), step('2', 'الإشعارات ← ' + APP_NAME), step('3', 'فعّل «السماح بالإشعارات» وارجع هنا')]
+      : isStandalone()
+        ? [step('1', 'اضغط مطوّل على أيقونة التطبيق'), step('2', 'معلومات التطبيق ⓘ ← الإشعارات'), step('3', 'فعّلها وارجع هنا')]
+        : [step('1', 'اضغط على 🔒 أو ⓘ جنب الرابط فوق'), step('2', 'الأذونات ← الإشعارات ← سماح'), step('3', 'ارجع هنا واضغط الزر تحت')];
+    body = [
+      el('h2', null, 'التنبيهات مقفلة'),
+      el('p', { class: 'muted' }, 'سبق ورفضت التنبيهات، والجوال ما يسمح نطلبها مرة ثانية. فعّلها يدوياً:'),
+      el('div', { class: 'gate-steps' }, ...steps),
+      el('button', { class: 'btn primary block', onclick: () => route() }, 'فعّلتها، كمّل'),
+    ];
+  } else {
+    body = [
+      el('h2', null, 'فعّل التنبيهات'),
+      el('p', { class: 'muted' }, kid
+        ? 'عشان توصلك رسائل أهلك وأصدقائك ويرن جوالك لما أحد ينبهك 🔔'
+        : 'عشان توصلك رسائل العائلة وتنبيهات الأمان عن أطفالك فوراً'),
+      el('button', { class: 'btn primary block lg', onclick: (ev) => guard(async () => {
+        playMessageSound(); // يفتح الصوت في المتصفح من أول ضغطة
+        const r = DEMO ? (window.__demoPerm = 'granted') : await Notification.requestPermission();
+        if (r === 'granted') {
+          if (DEMO) window.__gatePassed = true;
+          toast('تم تفعيل التنبيهات ✅', 'ok');
+          route();
+        } else renderNotifGate();
+      }, ev.currentTarget) }, icon('bell'), 'سماح بالتنبيهات'),
+    ];
+  }
+
+  app.replaceChildren(el('div', { class: 'center-page notif-gate' }, el('div', { class: 'card center gate-card' },
+    el('div', { class: 'gate-bell' }, '🔔'),
+    ...body,
+    el('p', { class: 'gate-note' }, 'هذي الخطوة ضرورية لاستخدام التطبيق'))));
 }
 
 // =============================================================
@@ -123,7 +241,7 @@ async function onNewMessage(m) {
   if (S.currentConv === m.conversation_id && !document.hidden) return;
   playMessageSound();
   const text = (previewText(m.kind, m.body) || '').slice(0, 70);
-  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+  if (document.hidden && !pushActive && 'Notification' in window && Notification.permission === 'granted') {
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
       const opts = { body: text, icon: 'icons/icon-192.png', tag: m.conversation_id, data: { url: '#/chat/' + m.conversation_id } };
@@ -142,7 +260,7 @@ async function buzzAlert(m) {
   let who = { name: 'أحد', avatar: '🔔' };
   try { const info = await rpc('conversation_info', { p_conv: m.conversation_id }); who = info.members.find((x) => x.id === m.sender_id) || who; } catch { /* ignore */ }
   const stop = startRingtone(20);
-  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+  if (document.hidden && !pushActive && 'Notification' in window && Notification.permission === 'granted') {
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
       reg?.showNotification(`🔔 ${who.name} ينبهك!`, { body: 'افتح التطبيق', tag: 'buzz', renotify: true, requireInteraction: true, vibrate: [600, 200, 600, 200, 600], data: { url: '#/chat/' + m.conversation_id } });
@@ -203,7 +321,8 @@ function renderAuth() {
   const email = el('input', { class: 'input', type: 'email', autocomplete: 'email', placeholder: 'name@example.com', dir: 'ltr', required: true });
   const pass = el('input', { class: 'input', type: 'password', autocomplete: 'current-password', placeholder: '••••••••', dir: 'ltr', required: true, minlength: '6' });
   const submit = el('button', { class: 'btn primary block lg', type: 'submit' }, 'دخول');
-  const tabs = el('div', { class: 'seg' });
+  const title = el('div', { class: 'card-title' });
+  const switcher = el('p', { class: 'auth-switch' });
   const forgot = el('button', { type: 'button', class: 'link', onclick: () => guard(async () => {
     if (!email.value) throw new Error('اكتب إيميلك أولاً');
     const { error } = await sb.auth.resetPasswordForEmail(email.value.trim(), { redirectTo: location.origin + location.pathname });
@@ -212,9 +331,11 @@ function renderAuth() {
   }) }, 'نسيت كلمة المرور؟');
 
   const drawTabs = () => {
-    tabs.replaceChildren(
-      el('button', { type: 'button', class: mode === 'login' ? 'on' : '', onclick: () => { mode = 'login'; drawTabs(); } }, 'تسجيل دخول'),
-      el('button', { type: 'button', class: mode === 'signup' ? 'on' : '', onclick: () => { mode = 'signup'; drawTabs(); } }, 'حساب جديد'));
+    const toggle = (m) => () => { mode = m; drawTabs(); };
+    title.replaceChildren(icon('shield'), mode === 'login' ? 'دخول الأهل' : 'حساب جديد للأهل');
+    switcher.replaceChildren(...(mode === 'login'
+      ? ['أول مرة؟ ', el('button', { type: 'button', class: 'link', onclick: toggle('signup') }, 'سجّل حساب جديد')]
+      : ['عندك حساب؟ ', el('button', { type: 'button', class: 'link', onclick: toggle('login') }, 'سجّل دخول')]));
     submit.textContent = mode === 'login' ? 'دخول' : 'إنشاء حساب';
     pass.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     forgot.style.display = mode === 'login' ? '' : 'none';
@@ -238,10 +359,11 @@ function renderAuth() {
 
   app.replaceChildren(el('div', { class: 'center-page auth' },
     el('div', { class: 'hero' }, brandMark(true), el('h1', null, APP_NAME), el('p', { class: 'muted' }, 'دردشة آمنة تجمع العائلة')),
-    el('div', { class: 'card' }, el('div', { class: 'card-title' }, icon('shield'), 'دخول الأهل'), tabs, form),
+    el('div', { class: 'card' }, title, form),
     el('div', { class: 'card kid-card' },
       el('span', { class: 'kid-ic' }, icon('qr')),
-      el('div', null, el('b', null, 'أنت طفل؟'), el('p', { class: 'muted small' }, 'اطلب من أبوك أو أمك يفتحون لك "كود الدخول" وامسحه بكاميرا جوالك')))));
+      el('div', null, el('b', null, 'أنت طفل؟'), el('p', { class: 'muted small' }, 'اطلب من أبوك أو أمك يفتحون لك "كود الدخول" وامسحه بكاميرا جوالك'))),
+    switcher));
 }
 
 function newPasswordSheet() {
@@ -521,7 +643,13 @@ async function tabFriends() {
         el('div', { class: 'row-main' }, el('b', null, o.n), el('small', { class: 'muted' }, requestStatus(r))),
         el('span', { class: 'pill ' + (r.status === 'rejected' ? 'danger' : 'warn') }, r.status === 'rejected' ? 'مرفوض' : 'انتظار'));
     }))) : null,
-    friends.length ? section(`الأصدقاء · ${friends.length}`, el('div', { class: 'list' }, friends.map((p) => contactRow(p, () => openDm(p))))) : null,
+    friends.length ? section(`الأصدقاء · ${friends.length}`, el('div', { class: 'list' }, friends.map((p) => contactRow(p, null,
+      el('div', { class: 'row-btns' },
+        el('button', { class: 'icon-btn tint', 'aria-label': `محادثة ${p.name}`, onclick: () => openDm(p) }, icon('chat')),
+        el('button', { class: 'icon-btn danger', 'aria-label': `حذف ${p.name}`, onclick: () => guard(async () => {
+          if (!(await ask(`حذف ${p.name} من الأصدقاء؟`, { ok: 'حذف', danger: true, detail: 'ما تقدرون تتراسلون بعدها، وترجع الإضافة تحتاج موافقة الأهل من جديد' }))) return;
+          await rpc('remove_friend_with', { p_other: p.id }); toast(`تم حذف ${p.name}`); bus.emit('refresh-tab');
+        }) }, icon('trash'))))))) : null,
     section('العائلة', family.length ? el('div', { class: 'list' }, family.map((p) => contactRow(p, () => openDm(p))))
       : el('p', { class: 'muted' }, 'ما فيه أحد ثاني بالعائلة للحين')),
   ];
@@ -722,7 +850,16 @@ function childSettings(k) {
     el('button', { class: 'btn danger-soft block', onclick: () => guard(async () => {
       if (!(await ask('تسجيل خروج جهاز الطفل؟', { ok: 'نعم', danger: true, detail: 'بيحتاج يمسح كود دخول جديد عشان يرجع' }))) return;
       await rpc('unpair_child', { p_child: k.id }); toast('تم تسجيل خروج الجهاز'); close(); bus.emit('refresh-tab');
-    }) }, icon('logout'), 'تسجيل خروج جهاز الطفل')), { full: true });
+    }) }, icon('logout'), 'تسجيل خروج جهاز الطفل'),
+    el('button', { class: 'btn danger-soft block', onclick: () => guard(async () => {
+      if (!(await ask(`حذف ${k.name} نهائياً؟`, { ok: 'حذف نهائي', danger: true,
+        detail: 'ينحذف حسابه ومحادثاته الخاصة وصوره وأصدقاؤه، وما يمكن ترجعها' }))) return;
+      const paths = await rpc('child_media_paths', { p_child: k.id });
+      const list = (paths || []).map((x) => (typeof x === 'string' ? x : Object.values(x)[0])).filter(Boolean);
+      for (let i = 0; i < list.length; i += 100) await sb.storage.from('media').remove(list.slice(i, i + 100)).catch(() => {});
+      await rpc('delete_child', { p_child: k.id });
+      toast(`تم حذف ${k.name}`); close(); bus.emit('refresh-tab');
+    }) }, icon('trash'), 'حذف الطفل نهائياً')), { full: true });
   btn.onclick = () => guard(async () => {
     await rpc('update_child', {
       p_child: k.id, p_name: name.value, p_avatar: pick.value, p_muted: muted.checked,
@@ -756,7 +893,7 @@ async function tabMe() {
     : notifState === 'granted'
       ? settingRow({ ic: 'bell', tone: 'amber', title: 'التنبيهات', sub: 'مفعّلة', end: el('span', { class: 'pill ok' }, 'مفعّل') })
       : settingRow({ ic: 'bell', tone: 'amber', title: 'تفعيل التنبيهات', sub: 'عشان توصلك الرسائل الجديدة', onclick: async () => { await Notification.requestPermission(); bus.emit('refresh-tab'); } });
-  const installRow = isStandalone ? null : S.installPrompt
+  const installRow = (isStandalone || appInstalled()) ? null : S.installPrompt
     ? settingRow({ ic: 'download', tone: 'green', title: 'تثبيت التطبيق', sub: 'أيقونة على الشاشة الرئيسية', onclick: async () => { S.installPrompt.prompt(); S.installPrompt = null; } })
     : settingRow({ ic: 'download', tone: 'green', title: 'تثبيت التطبيق', sub: isIOS ? 'Safari: مشاركة ⬆️ ← إضافة إلى الشاشة الرئيسية' : 'Chrome: ⋮ ← تثبيت التطبيق' });
 
@@ -771,11 +908,11 @@ async function tabMe() {
       settingRow({ ic: 'volume', tone: 'blue', title: 'صوت التنبيه', sub: 'للرسائل الجديدة',
         end: el('span', { class: 'pill accent' }, { loud: 'قوي', normal: 'عادي', off: 'بدون' }[soundLevel()]), onclick: soundSheet }),
       notifRow, installRow),
-    el('div', { class: 'list' },
+    // الطفل ما عنده تسجيل خروج (أهله يقدرون يطلعونه من صفحة العائلة). الأهل يبقون داخلين دايم إلا لو طلعوا بأنفسهم
+    S.me.role === 'parent' ? el('div', { class: 'list' },
       settingRow({ ic: 'logout', tone: 'red', title: 'تسجيل خروج', onclick: async () => {
-        const detail = S.me.role === 'child' ? 'بتحتاج كود دخول جديد من أهلك عشان ترجع' : '';
-        if (await ask('تسجيل خروج؟', { ok: 'خروج', danger: true, detail })) { await sb.auth.signOut(); }
-      } })),
+        if (await ask('تسجيل خروج؟', { ok: 'خروج', danger: true, detail: 'بتحتاج الإيميل وكلمة المرور عشان ترجع' })) { await dropPush(); await sb.auth.signOut(); }
+      } })) : null,
     el('p', { class: 'center muted small' }, `${APP_NAME} · نسخة 1.1`),
   ];
 }

@@ -161,6 +161,15 @@ export function createDemoClient(role, supabaseUrl) {
       const o = people[g.players.find((x) => x !== meId)];
       return { id: g.id, kind: g.kind, status: g.status, turn: g.turn, winner: g.winner, updated_at: g.updated_at, opponent_name: o.name, opponent_avatar: o.avatar };
     }),
+    remove_friend_with: ({ p_other }) => { for (let i = requests.length - 1; i >= 0; i--) { const r = requests[i]; if ([r.from, r.to].includes(meId) && [r.from, r.to].includes(p_other)) requests.splice(i, 1); } return null; },
+    child_media_paths: () => [],
+    delete_child: ({ p_child }) => {
+      for (const c of Object.values(convs)) { if (c.kind === 'direct' && c.members.includes(p_child)) delete convs[c.id]; else c.members = c.members.filter((x) => x !== p_child); }
+      for (let i = messages.length - 1; i >= 0; i--) if (messages[i].sender_id === p_child || !convs[messages[i].conversation_id]) messages.splice(i, 1);
+      for (let i = requests.length - 1; i >= 0; i--) if ([requests[i].from, requests[i].to].includes(p_child)) requests.splice(i, 1);
+      for (const g of Object.keys(games)) if (games[g].players.includes(p_child)) delete games[g];
+      delete people[p_child]; return null;
+    },
     start_dm: ({ p_other }) => Object.values(convs).find((c) => c.kind === 'direct' && c.members.includes(meId) && c.members.includes(p_other))?.id
       || (() => { const id = 'c-new-' + p_other; convs[id] = { id, kind: 'direct', title: null, emoji: '💬', members: [meId, p_other] }; return id; })(),
     send_message: ({ p_conv, p_kind, p_body, p_media_path, p_meta }) => {
@@ -234,7 +243,7 @@ export function createDemoClient(role, supabaseUrl) {
 
   return {
     auth: {
-      getSession: async () => ok({ session: { user: { id: 'auth-' + meId, is_anonymous: role === 'child' } } }),
+      getSession: async () => ok({ session: role === 'auth' ? null : { user: { id: 'auth-' + meId, is_anonymous: role === 'child' } } }),
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
       signOut: async () => { location.search = ''; return ok(null); },
       signInWithPassword: async () => ok({ session: {} }),

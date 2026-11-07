@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v3';
+const CACHE = 'sawalif-v6';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
@@ -24,6 +24,27 @@ self.addEventListener('fetch', (e) => {
       return res;
     }).catch(() => caches.match(e.request).then((r) => r || caches.match('index.html'))),
   );
+});
+
+// إشعار Push من السيرفر: يوصل حتى لو التطبيق مقفل
+self.addEventListener('push', (e) => {
+  let n = {};
+  try { n = e.data ? e.data.json() : {}; } catch { n = { title: 'سوالف العائلة', body: e.data?.text() || '' }; }
+  const isApple = /iphone|ipad|ipod|macintosh/i.test(self.navigator.userAgent);
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    // التطبيق مفتوح قدامه؟ التطبيق نفسه يطلع الصوت والتنبيه، فما نكرر (آبل تشترط إشعار دايم)
+    if (!isApple && list.some((c) => c.visibilityState === 'visible' && c.focused)) return;
+    return self.registration.showNotification(n.title || 'سوالف العائلة', {
+      body: n.body || '',
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      tag: n.tag || 'msg',
+      renotify: true,
+      requireInteraction: !!n.buzz,
+      vibrate: n.buzz ? [800, 200, 800, 200, 800, 200, 800] : [200, 100, 200],
+      data: { url: n.url || '#/' },
+    });
+  }));
 });
 
 self.addEventListener('notificationclick', (e) => {
