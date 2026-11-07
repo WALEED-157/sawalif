@@ -12,5 +12,5 @@ export const CONFIG = {
   SUPABASE_ANON_KEY: 'sb_publishable_sIdycYS10rnYMKD1M4qd1g_pYX7m1H9',
 
   // المفتاح العام للإشعارات (Push). المفتاح الخاص حقه في Supabase ← Edge Functions ← Secrets
-  VAPID_PUBLIC_KEY: 'BKkOOyZjMpppAa4nZ_Q9Y3CwVVJtzbL7jdppI7KtfyZa8tThwqfeW3o-kOd287NNmX5-TvLKUID_sq21Kjtc6rI',
+  VAPID_PUBLIC_KEY: 'BOj_hOLa9dyZYxl6mLRpWI_E5Dmw4IenZVN4rIX_JFcZ-SKl30ZWx9RLaoHjV8jOFiO4pazF5KagHRykbaOeRv0',
 };
