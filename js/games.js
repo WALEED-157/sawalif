@@ -1,4 +1,4 @@
-import { sb, S, bus, rpc, el, toast, guard, go, av, addCleanup, niceError } from './lib.js';
+import { sb, S, bus, rpc, el, icon, toast, guard, go, back, av, addCleanup, niceError, navbar } from './lib.js';
 
 export const GAMES = {
   xo: { name: 'إكس أو', icon: '❌⭕', ic: '❌', desc: 'ثلاثة في صف', colors: ['#6c5ce7', '#a29bfe'] },
@@ -17,10 +17,8 @@ export async function startGame(convId, kind, opponentId) {
 const RPS = { rock: '✊', paper: '✋', scissors: '✌️' };
 const RPS_NAME = { rock: 'حجرة', paper: 'ورقة', scissors: 'مقص' };
 
-function subHeader(title, back) {
-  return el('header', { class: 'topbar' },
-    el('button', { class: 'icon-btn back', 'aria-label': 'رجوع', onclick: back }, '→'),
-    el('b', { class: 'grow' }, title));
+function subHeader(title, onBack, emoji, colors) {
+  return navbar({ title, subtitle: 'لعبة', avatar: el('span', { class: 'av sm game-av', style: { '--g1': colors[0], '--g2': colors[1] } }, emoji), onBack });
 }
 
 function xoWinner(b) {
@@ -57,7 +55,7 @@ export async function renderGame(app, id) {
   let busy = false;
 
   const root = el('main', { class: 'page game-page' });
-  app.replaceChildren(el('div', { class: 'sub' }, subHeader(`${meta.ic} ${meta.name}`, () => go('/chat/' + g.conversation_id)), root));
+  app.replaceChildren(el('div', { class: 'sub game-sub' }, subHeader(meta.name, () => back('/games'), meta.ic, meta.colors), root));
 
   const myIdx = g.players.indexOf(S.me.id);
   const isPlayer = myIdx >= 0;
@@ -78,7 +76,7 @@ export async function renderGame(app, id) {
   function players(marks) {
     return el('div', { class: 'players' },
       [0, 1].map((i) => el('div', { class: 'player' + (g.status === 'active' && g.turn === g.players[i] ? ' turn' : '') },
-        av(p(i).avatar, 'md'), el('b', null, p(i).name + (g.players[i] === S.me.id ? ' (أنت)' : '')),
+        av(p(i).avatar, 'lg', g.players[i]), el('b', null, p(i).name + (g.players[i] === S.me.id ? ' (أنت)' : '')),
         marks ? el('span', { class: 'mark' }, marks[i]) : null,
         g.kind === 'rps' ? el('span', { class: 'score' }, String(g.state.score?.[g.players[i]] || 0)) : null)),
     );
@@ -98,8 +96,8 @@ export async function renderGame(app, id) {
   function afterButtons() {
     if (g.status !== 'done') return null;
     return el('div', { class: 'row-btns center' },
-      isPlayer ? el('button', { class: 'btn primary', onclick: (e) => guard(() => startGame(g.conversation_id, g.kind, oppId), e.currentTarget) }, '🔁 جولة ثانية') : null,
-      el('button', { class: 'btn soft', onclick: () => go('/chat/' + g.conversation_id) }, '💬 المحادثة'));
+      isPlayer ? el('button', { class: 'btn primary', onclick: (e) => guard(() => startGame(g.conversation_id, g.kind, oppId), e.currentTarget) }, icon('flip'), 'جولة ثانية') : null,
+      el('button', { class: 'btn soft', onclick: () => go('/chat/' + g.conversation_id) }, icon('chat'), 'المحادثة'));
   }
 
   function xoView() {
@@ -171,8 +169,8 @@ export async function renderGame(app, id) {
   function draw() {
     const marks = g.kind === 'xo' ? ['❌', '⭕'] : g.kind === 'connect4' ? ['🔴', '🟡'] : null;
     const board = g.kind === 'xo' ? xoView() : g.kind === 'connect4' ? c4View() : rpsView();
-    root.replaceChildren(players(marks), statusLine(), board, afterButtons(),
-      !isPlayer ? el('p', { class: 'muted center small' }, '👁 تشاهد اللعبة') : null);
+    root.replaceChildren(...[players(marks), statusLine(), board, afterButtons(),
+      !isPlayer ? el('p', { class: 'muted center small' }, 'تشاهد اللعبة كولي أمر') : null].filter(Boolean));
   }
   draw();
 
@@ -190,7 +188,7 @@ export async function renderGame(app, id) {
 function renderMemory(app) {
   const POOL = ['🐶', '🐱', '🦁', '🐼', '🐸', '🦄', '🐙', '🦋', '🍕', '🍩', '⚽', '🚀', '🌈', '🎈', '🍉', '🐢'];
   const root = el('main', { class: 'page game-page' });
-  app.replaceChildren(el('div', { class: 'sub' }, subHeader('🧠 لعبة الذاكرة', () => go('/games')), root));
+  app.replaceChildren(el('div', { class: 'sub game-sub' }, subHeader('لعبة الذاكرة', () => back('/games'), '🧠', SOLO.memory.colors), root));
   let best = null;
   try { best = +localStorage.getItem('fc_mem_best') || null; } catch { /* ignore */ }
 
@@ -224,7 +222,7 @@ function renderMemory(app) {
             setTimeout(() => { a.open = false; c.open = false; lock = false; draw(); }, 800);
           }
         },
-      }, el('span', { class: 'mem-front' }, '❓'), el('span', { class: 'mem-back' }, c.e))));
+      }, el('span', { class: 'mem-front' }, '?'), el('span', { class: 'mem-back' }, c.e))));
     };
     draw();
     root.replaceChildren(info, movesEl, grid,
