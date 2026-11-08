@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v8';
+const CACHE = 'sawalif-v9';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
@@ -47,11 +47,21 @@ self.addEventListener('push', (e) => {
   }));
 });
 
+// التطبيق انفتح → امسح كل الإشعارات اللي فوق
+self.addEventListener('message', (e) => {
+  if (e.data?.clearNotifications) {
+    e.waitUntil(self.registration.getNotifications().then((ns) => ns.forEach((n) => n.close())));
+  }
+});
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const target = e.notification.data?.url || '#/';
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    for (const c of list) { c.focus(); c.navigate?.(new URL(target, self.registration.scope).href); return; }
+  // الرابط لازم يكون على صفحة التطبيق نفسها (مو على ملف sw.js)
+  const hash = (e.notification.data?.url || '#/').replace(/^[^#]*/, '');
+  const target = new URL(self.registration.scope).href.split('#')[0] + hash;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (list) => {
+    const c = list.find((w) => w.url.startsWith(self.registration.scope) && !w.url.includes('sw.js'));
+    if (c) { await c.focus(); c.postMessage({ nav: hash }); return; }
     return self.clients.openWindow(target);
   }));
 });

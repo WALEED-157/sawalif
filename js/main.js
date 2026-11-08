@@ -46,12 +46,26 @@ async function boot() {
   });
   bus.on('route', route);
 
+  // الضغط على إشعار والتطبيق مفتوح: نروح للمحادثة
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.nav && e.data.nav !== location.hash) location.hash = e.data.nav;
+  });
+  // كل ما انفتح التطبيق: نمسح الإشعارات ونوقف الرنين
+  addEventListener('visibilitychange', () => { if (!document.hidden) appOpened(); });
+  setTimeout(appOpened, 1500);
+
   sb.auth.onAuthStateChange((event, session) => {
     S.session = session;
     if (event === 'SIGNED_OUT') { S.me = null; stopRealtime(); setTimeout(() => goRoot('/'), 0); }
     if (event === 'PASSWORD_RECOVERY') setTimeout(newPasswordSheet, 0);
   });
   route();
+}
+
+function appOpened() {
+  if (DEMO) return;
+  try { navigator.serviceWorker?.controller?.postMessage({ clearNotifications: true }); } catch { /* ignore */ }
+  if (S.me) rpc('touch_seen').catch(() => {}); // السيرفر يوقف رنين التنبيه القوي
 }
 
 // نتذكر إن التطبيق متثبّت عشان زر التثبيت يختفي حتى لو انفتح من المتصفح

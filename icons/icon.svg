@@ -1,1 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8e7cff"/><stop offset="1" stop-color="#6c5ce7"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#g)"/><path d="M256 110c-90 0-162 60-162 134 0 41 22 78 58 102l-16 62 66-36c17 4 35 6 54 6 90 0 162-60 162-134S346 110 256 110z" fill="#fff"/><path d="M256 306c-8 0-50-31-62-54-11-20-2-46 21-50 17-3 32 6 41 21 9-15 24-24 41-21 23 4 32 30 21 50-12 23-54 54-62 54z" fill="#ff6b81"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1060"/>
+      <stop offset="0.55" stop-color="#0b0b2e"/>
+      <stop offset="1" stop-color="#05051a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.48" r="0.5">
+      <stop offset="0" stop-color="#00e5ff" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#00e5ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bubble" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00f0ff"/>
+      <stop offset="1" stop-color="#2f6bff"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff35c"/>
+      <stop offset="0.5" stop-color="#ffb300"/>
+      <stop offset="1" stop-color="#ff5a1f"/>
+    </linearGradient>
+    <filter id="neon" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="246" r="230" fill="url(#glow)"/>
+
+  <!-- خطوط سرعة -->
+  <g stroke="#00e5ff" stroke-linecap="round" opacity=".55">
+    <line x1="40" y1="170" x2="110" y2="170" stroke-width="10"/>
+    <line x1="22" y1="215" x2="92" y2="215" stroke-width="8"/>
+    <line x1="48" y1="260" x2="100" y2="260" stroke-width="6"/>
+    <line x1="420" y1="300" x2="480" y2="300" stroke-width="10"/>
+    <line x1="430" y1="345" x2="492" y2="345" stroke-width="7"/>
+  </g>
+
+  <!-- فقاعة المحادثة -->
+  <path filter="url(#neon)" fill="#0d1440" stroke="url(#bubble)" stroke-width="22" stroke-linejoin="round"
+        d="M256 98c-96 0-172 64-172 146 0 44 22 83 58 110l-16 62 70-36c19 6 39 9 60 9 96 0 172-64 172-145S352 98 256 98z"/>
+
+  <!-- البرق -->
+  <path filter="url(#neon)" fill="url(#bolt)" stroke="#fff6b0" stroke-width="5" stroke-linejoin="round"
+        d="M282 128 186 262h58l-30 116 108-150h-62l38-100z"/>
+</svg>
