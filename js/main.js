@@ -267,7 +267,11 @@ async function buzzAlert(m) {
     } catch { /* ignore */ }
   }
   let unreg = () => {};
-  const close = (open) => { stop(); unreg(); wrap.remove(); buzzOpen = false; if (open) go('/chat/' + m.conversation_id); };
+  const close = (open) => {
+    stop(); unreg(); wrap.remove(); buzzOpen = false;
+    rpc('mark_read', { p_conv: m.conversation_id }).catch(() => {}); // يوقف الرنين المتكرر من السيرفر
+    if (open) go('/chat/' + m.conversation_id);
+  };
   const wrap = el('div', { class: 'buzz-screen', role: 'alertdialog', 'aria-label': 'تنبيه' },
     el('div', { class: 'buzz-center' }, el('div', { class: 'buzz-rings' }, el('i'), el('i'), el('i')), el('span', { class: 'av xxl buzz-av' }, who.avatar)),
     el('h1', null, who.name),

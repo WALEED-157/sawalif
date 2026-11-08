@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v7';
+const CACHE = 'sawalif-v8';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
