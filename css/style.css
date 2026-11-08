@@ -544,8 +544,9 @@ button.srow:hover { background: var(--surface-2); }
 .g-status { text-align: center; font-size: 19px; font-weight: 600; padding: 8px; border-radius: 16px; }
 .g-status.go { color: var(--primary); background: var(--primary-soft); }
 .g-status.win { color: var(--ok); background: var(--ok-soft); font-size: 22px; }
-.xo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: min(100%, 340px); margin: 0 auto; }
-.xo-cell { aspect-ratio: 1; border-radius: 22px; background: var(--surface); box-shadow: var(--shadow); font-size: 50px; display: grid; place-items: center; transition: transform .1s; }
+/* اللوحة تاخذ عرض الشاشة تقريباً (تدخل شوي في الهوامش) وأقصى عرض 460 */
+.xo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 max(-10px, calc((100% - 460px) / 2)); }
+.xo-cell { aspect-ratio: 1; border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); font-size: clamp(56px, 18vw, 76px); display: grid; place-items: center; transition: transform .1s; }
 .xo-cell:disabled { opacity: 1; }
 .xo.live .xo-cell:not(:disabled):hover { background: var(--primary-soft); }
 .xo.live .xo-cell:not(:disabled):active { transform: scale(.94); }
@@ -610,6 +611,31 @@ button.srow:hover { background: var(--surface-2); }
 .buzz-actions { display: flex; gap: 10px; margin-top: 30px; width: min(100%, 360px); }
 .buzz-actions .btn { flex: 1; }
 .buzz-open { background: #fff; color: #e0294a; }
+
+/* شاشة الاتصال الوارد */
+.buzz-screen.call { justify-content: space-between; padding: calc(env(safe-area-inset-top) + 56px) 24px calc(env(safe-area-inset-bottom) + 48px);
+  background: linear-gradient(180deg, #1b2a4a 0%, #0e1628 55%, #070b16 100%); animation: none; }
+.call-top { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.call-label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; opacity: .75; }
+.call-label .ic { width: 15px; height: 15px; }
+.buzz-screen.call h1 { font-size: 38px; font-weight: 700; margin-top: 10px; }
+.buzz-screen.call p { font-size: 18px; opacity: .8; }
+.call-dots { display: inline-block; width: 1.2em; text-align: start; }
+.buzz-screen.call .buzz-center { width: 130px; height: 130px; }
+.buzz-screen.call .buzz-av { width: 130px; height: 130px; font-size: 72px; border-radius: 50% !important; background: rgba(255,255,255,.12) !important; animation: callpulse 1.2s ease-in-out infinite; }
+.buzz-screen.call .buzz-rings i { width: 130px; height: 130px; margin: -65px; border-color: rgba(52,199,89,.55); animation-duration: 2.2s; }
+@keyframes callpulse { 50% { transform: scale(1.06); } }
+.call-actions { display: flex; direction: ltr; justify-content: space-around; width: min(100%, 340px); }
+.call-btn { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 15px; }
+.call-round { width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center; color: #fff; border: 0; cursor: pointer; transition: transform .1s; }
+.call-round:active { transform: scale(.92); }
+.call-round .ic { width: 34px; height: 34px; }
+.call-round .ic svg { fill: currentColor; stroke: none; }
+.call-round.decline { background: #ff3b30; }
+.call-round.decline .ic { transform: rotate(135deg); }
+.call-round.accept { background: #34c759; animation: callbounce 1.2s ease-in-out infinite; }
+@keyframes callbounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-10px); } }
+.call-round.accept .ic { animation: shake .45s ease-in-out infinite; }
 
 /* ---------- الألعاب الجديدة ---------- */
 .player { --pc: var(--primary); }

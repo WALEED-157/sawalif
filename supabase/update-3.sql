@@ -39,7 +39,7 @@ create or replace function public._push_notify(p_type text, p_id uuid)
 returns void language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform net.http_post(
-    url := 'https://mjvwlinwcmyifteifrpr.supabase.co/functions/v1/push',
+    url := 'https://mjvwlinwcmyifteifrpr.supabase.co/functions/v1/dynamic-handler',
     headers := jsonb_build_object('Content-Type', 'application/json',
                                   'x-push-secret', (select push_secret from app_config where id = 1)),
     body := jsonb_build_object('type', p_type, 'id', p_id));

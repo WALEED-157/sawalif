@@ -148,6 +148,7 @@ const P = {
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
   leave: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
   bellRing: '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/>',
   volume: '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
 };
@@ -376,20 +377,22 @@ export function playMessageSound() {
 
 /** رنّة التنبيه القوية (تتكرر لين يوقفها المستخدم) — ترجع دالة الإيقاف */
 export function startRingtone(maxSec = 15) {
-  if (soundLevel() === 'off') { navigator.vibrate?.([500, 200, 500]); return () => {}; }
+  // رنّة اتصال: "ترررن ترررن" بأعلى صوت — تشتغل حتى لو صوت الرسائل مطفّى لأنها نداء مهم
   let stopped = false; let timer;
   const ring = () => {
     if (stopped) return;
     try {
       const ctx = audio(); const t = ctx.currentTime;
-      for (let i = 0; i < 6; i++) {
-        tone(ctx, i % 2 ? 1175 : 1568, t + i * 0.09, 0.09, 1, 'square');
-        tone(ctx, i % 2 ? 587 : 784, t + i * 0.09, 0.09, 0.5, 'triangle');
+      for (const start of [0, 0.55]) {
+        for (let i = 0; i < 10; i++) {
+          const d = t + start + i * 0.04;
+          tone(ctx, i % 2 ? 1320 : 1660, d, 0.04, 1, 'square');
+          tone(ctx, i % 2 ? 660 : 830, d, 0.04, 0.6, 'triangle');
+        }
       }
-      for (let i = 0; i < 6; i++) tone(ctx, i % 2 ? 1175 : 1568, t + 0.75 + i * 0.09, 0.09, 1, 'square');
     } catch { /* ignore */ }
-    navigator.vibrate?.([600, 200, 600]);
-    timer = setTimeout(ring, 2000);
+    navigator.vibrate?.([900, 300, 900]);
+    timer = setTimeout(ring, 2200);
   };
   ring();
   const end = setTimeout(() => stop(), maxSec * 1000);

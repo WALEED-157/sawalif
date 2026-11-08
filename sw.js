@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v9';
+const CACHE = 'sawalif-v10';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
@@ -41,7 +41,7 @@ self.addEventListener('push', (e) => {
       tag: n.tag || 'msg',
       renotify: true,
       requireInteraction: !!n.buzz,
-      vibrate: n.buzz ? [800, 200, 800, 200, 800, 200, 800] : [200, 100, 200],
+      vibrate: n.buzz ? [1000, 300, 1000, 300, 1000, 300, 1000, 300, 1000] : [200, 100, 200],
       data: { url: n.url || '#/' },
     });
   }));

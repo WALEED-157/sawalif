@@ -273,7 +273,7 @@ async function buzzAlert(m) {
   buzzOpen = true;
   let who = { name: 'أحد', avatar: '🔔' };
   try { const info = await rpc('conversation_info', { p_conv: m.conversation_id }); who = info.members.find((x) => x.id === m.sender_id) || who; } catch { /* ignore */ }
-  const stop = startRingtone(20);
+  const stop = startRingtone(60);
   if (document.hidden && !pushActive && 'Notification' in window && Notification.permission === 'granted') {
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
@@ -282,17 +282,27 @@ async function buzzAlert(m) {
   }
   let unreg = () => {};
   const close = (open) => {
-    stop(); unreg(); wrap.remove(); buzzOpen = false;
+    stop(); unreg(); clearInterval(tick); wrap.remove(); buzzOpen = false;
     rpc('mark_read', { p_conv: m.conversation_id }).catch(() => {}); // يوقف الرنين المتكرر من السيرفر
     if (open) go('/chat/' + m.conversation_id);
   };
-  const wrap = el('div', { class: 'buzz-screen', role: 'alertdialog', 'aria-label': 'تنبيه' },
+  // شاشة مثل الاتصال الوارد
+  const dots = el('span', { class: 'call-dots' }, '');
+  let n = 0;
+  const tick = setInterval(() => { n = (n + 1) % 4; dots.textContent = '.'.repeat(n); }, 500);
+  const wrap = el('div', { class: 'buzz-screen call', role: 'alertdialog', 'aria-label': 'اتصال وارد' },
+    el('div', { class: 'call-top' },
+      el('div', { class: 'call-label' }, icon('phone'), 'نداء من سوالف العائلة'),
+      el('h1', null, who.name),
+      el('p', null, 'يتصل فيك', dots)),
     el('div', { class: 'buzz-center' }, el('div', { class: 'buzz-rings' }, el('i'), el('i'), el('i')), el('span', { class: 'av xxl buzz-av' }, who.avatar)),
-    el('h1', null, who.name),
-    el('p', null, 'ينبهك! 🔔'),
-    el('div', { class: 'buzz-actions' },
-      el('button', { class: 'btn glass lg', onclick: () => close(false) }, 'إيقاف'),
-      el('button', { class: 'btn lg buzz-open', onclick: () => close(true) }, icon('chat'), 'فتح المحادثة')));
+    el('div', { class: 'call-actions' },
+      el('div', { class: 'call-btn' },
+        el('button', { class: 'call-round decline', 'aria-label': 'رفض', onclick: () => close(false) }, icon('phone')),
+        el('span', null, 'رفض')),
+      el('div', { class: 'call-btn' },
+        el('button', { class: 'call-round accept', 'aria-label': 'رد', onclick: () => close(true) }, icon('phone')),
+        el('span', null, 'رد'))));
   document.body.append(wrap);
   unreg = pushOverlay(() => close(false));
 }
