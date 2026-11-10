@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v10';
+const CACHE = 'sawalif-v11';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
@@ -14,16 +14,33 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 
-// الشبكة أولاً (عشان التحديثات توصل فوراً) وإذا ما فيه نت نستخدم النسخة المحفوظة
+// المكتبات والخطوط (روابطها ثابتة بالإصدار): نحفظها بالجوال ونستخدمها على طول بدون انتظار النت
+const STATIC_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+  if (e.request.method !== 'GET') return;
+  if (STATIC_HOSTS.includes(url.host)) {
+    e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
+      if (res.ok || res.type === 'opaque') { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
-    }).catch(() => caches.match(e.request).then((r) => r || caches.match('index.html'))),
-  );
+    })));
+    return;
+  }
+  if (url.origin !== location.origin) return;
+  // ملفات التطبيق: الشبكة أولاً (عشان التحديثات توصل فوراً)، بس لو النت بطيء أكثر من 3 ثواني نستخدم النسخة المحفوظة
+  const net = fetch(e.request).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+    return res;
+  });
+  const fallback = () => caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('index.html') : undefined));
+  e.respondWith(new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done && r) { done = true; resolve(r); } };
+    const timer = setTimeout(() => fallback().then(finish), 3000);
+    net.then((r) => { clearTimeout(timer); finish(r); })
+      .catch(() => { clearTimeout(timer); fallback().then((r) => (r ? finish(r) : (done = true, resolve(Response.error())))); });
+  }));
 });
 
 // إشعار Push من السيرفر: يوصل حتى لو التطبيق مقفل
