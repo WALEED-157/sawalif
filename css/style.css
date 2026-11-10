@@ -667,6 +667,8 @@ button.srow:hover { background: var(--surface-2); }
 .quiz-top { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .quiz-bar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin-bottom: 18px; }
 .quiz-bar i { display: block; height: 100%; background: var(--grad); transition: width .3s; }
+.quiz.pitch .quiz-bar i { background: linear-gradient(90deg, #16a34a, #0d9488); }
+.quiz.pitch .quiz-opt { font-size: 16px; padding: 14px; }
 .quiz-q { text-align: center; font-size: 21px; margin: 6px 0 20px; line-height: 1.5; }
 .quiz-opts { display: grid; gap: 10px; }
 .quiz-opts.three { grid-template-columns: repeat(3, 1fr); }

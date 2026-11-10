@@ -197,7 +197,11 @@ export function createDemoClient(role, supabaseUrl) {
     start_game: ({ p_conv, p_kind, p_opponent }) => {
       const id = 'g' + (++seq);
       const board = p_kind === 'xo' ? Array(9).fill('') : Array(42).fill('');
-      games[id] = { id, conversation_id: p_conv, kind: p_kind, players: [meId, p_opponent], state: p_kind === 'rps' ? { round: 1, moves: {}, score: {} } : { board }, turn: p_kind === 'rps' ? null : meId, winner: null, status: 'active', updated_at: new Date().toISOString() };
+      const pick = (n, k) => [...Array(n).keys()].sort(() => Math.random() - 0.5).slice(0, k);
+      const state = p_kind === 'rps' ? { round: 1, moves: {}, score: {} }
+        : p_kind === 'football' ? { q: pick(60, 10), results: { [p_opponent]: { score: 6, ms: 52000 } } }
+          : p_kind === 'quiz' ? { q: pick(40, 7), results: { [p_opponent]: { score: 5, ms: 41000 } } } : { board };
+      games[id] = { id, conversation_id: p_conv, kind: p_kind, players: [meId, p_opponent], state, turn: ['rps', 'quiz', 'football'].includes(p_kind) ? null : meId, winner: null, status: 'active', updated_at: new Date().toISOString() };
       messages.push(M(p_conv, meId, 'game', 0, { meta: { game_id: id, game: p_kind, opponent: p_opponent } }));
       return id;
     },
@@ -208,7 +212,7 @@ export function createDemoClient(role, supabaseUrl) {
     },
     game_rps: () => null,
     game_guess: ({ p_game, p_guess }) => { const g = games[p_game]; const s = 42; const hint = p_guess === s ? 'hit' : p_guess < s ? 'up' : 'down'; g.state.history.push({ by: meId, n: p_guess, hint }); if (hint === 'up') g.state.low = p_guess + 1; if (hint === 'down') g.state.high = p_guess - 1; if (hint === 'hit') Object.assign(g, { winner: meId, status: 'done', state: { ...g.state, secret: s } }); else g.turn = g.players.find((x) => x !== meId); fire('games', g); return null; },
-    game_quiz: ({ p_game, p_score, p_ms }) => { const g = games[p_game]; g.state.results[meId] = { score: p_score, ms: p_ms }; const o = g.state.results.f1; Object.assign(g, { status: 'done', winner: p_score > o.score || (p_score === o.score && p_ms < o.ms) ? meId : 'f1' }); fire('games', g); return null; },
+    game_quiz: ({ p_game, p_score, p_ms }) => { const g = games[p_game]; g.state.results[meId] = { score: p_score, ms: p_ms }; const oid = g.players.find((x) => x !== meId); const o = g.state.results[oid]; if (o) Object.assign(g, { status: 'done', winner: p_score > o.score || (p_score === o.score && p_ms < o.ms) ? meId : oid }); fire('games', g); return null; },
     remove_message: ({ p_msg }) => { const m = messages.find((x) => x.id === p_msg); Object.assign(m, { body: null, media_path: null, meta: {}, removed_by: meId }); return null; },
   };
 

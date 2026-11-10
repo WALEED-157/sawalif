@@ -8,7 +8,7 @@ import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
 
 // رقم الإصدار: يظهر في "حسابي" وتحت شاشة الدخول. نرفعه مع كل تحديث (ونغيّر CACHE في sw.js معه)
-export const APP_VERSION = '1.5';
+export const APP_VERSION = '1.6';
 
 const app = document.getElementById('app');
 let routeSeq = 0;
