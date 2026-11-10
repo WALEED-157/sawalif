@@ -1,5 +1,5 @@
 // Service worker: يخلي التطبيق ينفتح بسرعة ويقبل التثبيت على الشاشة الرئيسية
-const CACHE = 'sawalif-v11';
+const CACHE = 'sawalif-v1.5'; // نفس رقم الإصدار في js/main.js
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/main.js', 'js/lib.js', 'js/chat.js', 'js/games.js', 'js/config.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
@@ -29,7 +29,8 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.origin !== location.origin) return;
   // ملفات التطبيق: الشبكة أولاً (عشان التحديثات توصل فوراً)، بس لو النت بطيء أكثر من 3 ثواني نستخدم النسخة المحفوظة
-  const net = fetch(e.request).then((res) => {
+  // cache: 'no-cache' = نسأل GitHub كل مرة إذا الملف تغيّر (GitHub يخلي المتصفح يحتفظ بالقديم 10 دقايق)
+  const net = fetch(e.request, { cache: 'no-cache' }).then((res) => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
     return res;
   });
