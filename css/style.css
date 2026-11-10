@@ -55,8 +55,9 @@
 }
 
 /* ---------- الأساسيات ---------- */
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; } /* manipulation = بدون تكبير بالنقر مرتين */
 html, body { margin: 0; height: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   font-family: 'Readex Pro', 'Rubik', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
   background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.55;
@@ -310,6 +311,7 @@ button.srow:hover { background: var(--surface-2); }
 .blue { background: #e4efff; color: var(--blue); }
 .pink { background: #ffe6f3; color: #e0408f; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .violet { background: #26224a; } :root:not([data-theme="light"]) .blue { background: #142640; } :root:not([data-theme="light"]) .pink { background: #3a1529; } }
+:root[data-theme="dark"] .violet { background: #26224a; } :root[data-theme="dark"] .blue { background: #142640; } :root[data-theme="dark"] .pink { background: #3a1529; }
 
 /* بطاقة الرقم التعريفي */
 .id-card { background: var(--grad); color: #fff; border-radius: var(--r-lg); padding: 18px 20px; margin-bottom: 12px; box-shadow: 0 12px 30px rgba(91, 76, 240, .3); position: relative; overflow: hidden; }
@@ -667,6 +669,8 @@ button.srow:hover { background: var(--surface-2); }
 .quiz-top { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .quiz-bar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin-bottom: 18px; }
 .quiz-bar i { display: block; height: 100%; background: var(--grad); transition: width .3s; }
+.btn.pulse { animation: btnpulse 1.2s ease-in-out infinite; }
+@keyframes btnpulse { 50% { transform: scale(1.06); box-shadow: 0 0 0 6px var(--primary-soft); } }
 .quiz.pitch .quiz-bar i { background: linear-gradient(90deg, #16a34a, #0d9488); }
 .quiz.pitch .quiz-opt { font-size: 16px; padding: 14px; }
 .quiz-q { text-align: center; font-size: 21px; margin: 6px 0 20px; line-height: 1.5; }

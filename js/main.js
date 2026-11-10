@@ -8,7 +8,7 @@ import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
 
 // رقم الإصدار: يظهر في "حسابي" وتحت شاشة الدخول. نرفعه مع كل تحديث (ونغيّر CACHE في sw.js معه)
-export const APP_VERSION = '1.6';
+export const APP_VERSION = '1.7';
 
 const app = document.getElementById('app');
 let routeSeq = 0;
@@ -514,6 +514,7 @@ async function shell(tab, title, fill) {
     el('div', { class: 'appbar-top' },
       isSubMe ? el('button', { class: 'icon-btn', 'aria-label': 'رجوع', onclick: () => back('/family') }, icon('back')) : null,
       el('div', { class: 'brand' }, brandMark(), el('span', null, APP_NAME)),
+      themeButton(),
       isSubMe ? null : el('button', { class: 'me-btn', onclick: () => go('/me'), 'aria-label': 'حسابي' }, av(S.me.avatar, 'sm', S.me.id))),
     el('h1', { class: 'page-title' }, title));
   const navEl = el('nav', { class: 'tabbar', 'aria-label': 'التنقل' }, nav.map(([id, href, ic, label]) =>
@@ -535,6 +536,32 @@ async function shell(tab, title, fill) {
   ];
   addCleanup(() => offs.forEach((f) => f()));
 }
+
+// ---------- نهاري / ليلي ----------
+const isDark = () => (document.documentElement.dataset.theme
+  ? document.documentElement.dataset.theme === 'dark'
+  : matchMedia('(prefers-color-scheme: dark)').matches);
+function applyThemeColor() {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#0f0e17' : '#6c5ce7');
+}
+function themeButton() {
+  const btn = el('button', { class: 'icon-btn theme-btn' });
+  const paint = () => {
+    const dark = isDark();
+    btn.replaceChildren(icon(dark ? 'sun' : 'moon'));
+    btn.setAttribute('aria-label', dark ? 'الوضع النهاري' : 'الوضع الليلي');
+    btn.title = btn.getAttribute('aria-label');
+  };
+  btn.onclick = () => {
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('fc_theme', next); } catch { /* ignore */ }
+    applyThemeColor(); paint();
+  };
+  paint();
+  return btn;
+}
+applyThemeColor();
 
 const tabCache = new Map();
 let lastConvs = null;

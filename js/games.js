@@ -220,8 +220,21 @@ export async function renderGame(app, id) {
 
   function afterButtons() {
     if (g.status !== 'done') return null;
+    // لو الخصم فتح جولة ثانية، نفس الزر يدخلك لها (ما تنفتح لعبتين)
+    const rematch = g.state?.rematch;
+    const playAgain = (btn) => guard(async () => {
+      let nid;
+      try { nid = await rpc('rematch_game', { p_game: id }); }
+      catch (err) {
+        // السيرفر ما فيه التحديث 6 للحين؟ نرجع للطريقة القديمة
+        if (!/rematch_game|function/i.test(String(err?.message))) throw err;
+        return startGame(g.conversation_id, g.kind, oppId);
+      }
+      go('/game/' + nid);
+    }, btn);
     return el('div', { class: 'row-btns center' },
-      isPlayer ? el('button', { class: 'btn primary', onclick: (e) => guard(() => startGame(g.conversation_id, g.kind, oppId), e.currentTarget) }, icon('flip'), 'جولة ثانية') : null,
+      isPlayer ? el('button', { class: 'btn primary' + (rematch ? ' pulse' : ''), onclick: (e) => playAgain(e.currentTarget) },
+        icon('flip'), rematch ? `ادخل الجولة الثانية 🔥` : 'جولة ثانية') : null,
       el('button', { class: 'btn soft', onclick: () => go('/chat/' + g.conversation_id) }, icon('chat'), 'المحادثة'));
   }
 
