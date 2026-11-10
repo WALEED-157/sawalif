@@ -7,6 +7,9 @@ import { CONFIG } from './config.js';
 import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
 
+// رقم الإصدار: يظهر في "حسابي" وتحت شاشة الدخول. نرفعه مع كل تحديث (ونغيّر CACHE في sw.js معه)
+export const APP_VERSION = '1.5';
+
 const app = document.getElementById('app');
 let routeSeq = 0;
 
@@ -16,7 +19,19 @@ let routeSeq = 0;
 async function boot() {
   document.title = APP_NAME;
   if (!configured) return notConfigured();
-  if ('serviceWorker' in navigator && !DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && !DEMO) {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // كل ما يرجع للتطبيق نشيّك إذا فيه إصدار جديد
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // نزل إصدار جديد؟ نعيد تحميل التطبيق مرة وحدة عشان يشتغل على طول (بدل ما ينتظر المرة الجاية)
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded || document.querySelector('.buzz-screen')) return;
+      reloaded = true; location.reload();
+    });
+  }
   addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installPrompt = e; setInstalled(false); });
   addEventListener('appinstalled', () => { S.installPrompt = null; setInstalled(true); if (S.path === '/me') bus.emit('refresh-tab'); });
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) setInstalled(true);
@@ -31,13 +46,22 @@ async function boot() {
   }
   S.path = location.hash.slice(1) || '/';
 
-  // منع زر الرجوع حق الجوال/المتصفح من التنقل: يقفل النوافذ المفتوحة فقط
+  // زر الرجوع حق الجوال: يقفل النافذة المفتوحة، وإذا ما فيه نافذة يرجع للشاشة الرئيسية
+  // (وفي الشاشة الرئيسية ما يطلّع من التطبيق)
+  // ملاحظة: كروم يتجاهل خطوة الرجوع اللي انضافت بدون لمسة من المستخدم، فنضيفها من جديد مع أول لمسة
+  const here = () => location.pathname + location.search + '#' + S.path;
   history.replaceState({ trap: 0 }, '', location.href);
   history.pushState({ trap: 1 }, '', location.href);
+  let armed = false;
+  const arm = () => { if (!armed) { armed = true; history.pushState({ trap: 1 }, '', here()); } };
+  addEventListener('pointerdown', arm, { capture: true, passive: true });
+  addEventListener('keydown', arm, { capture: true });
   addEventListener('popstate', (e) => {
     if (e.state?.trap === undefined) return; // تغيير رابط من برا (يتعامل معه hashchange)
-    history.pushState({ trap: 1 }, '', location.pathname + location.search + '#' + S.path);
-    closeTopOverlay();
+    armed = false;
+    history.pushState({ trap: 1 }, '', here());
+    if (closeTopOverlay()) return;
+    if (S.session && S.me && S.path !== '/' && !S.path.startsWith('/pair')) goRoot('/');
   });
   // روابط خارجية (مثل رابط QR أو التنبيهات) تغيّر الـ hash مباشرة
   addEventListener('hashchange', () => {
@@ -56,7 +80,7 @@ async function boot() {
 
   sb.auth.onAuthStateChange((event, session) => {
     S.session = session;
-    if (event === 'SIGNED_OUT') { S.me = null; stopRealtime(); setTimeout(() => goRoot('/'), 0); }
+    if (event === 'SIGNED_OUT') { S.me = null; tabCache.clear(); lastConvs = null; stopRealtime(); setTimeout(() => goRoot('/'), 0); }
     if (event === 'PASSWORD_RECOVERY') setTimeout(newPasswordSheet, 0);
   });
   route();
@@ -391,7 +415,8 @@ function renderAuth() {
     el('div', { class: 'card kid-card' },
       el('span', { class: 'kid-ic' }, icon('qr')),
       el('div', null, el('b', null, 'أنت طفل؟'), el('p', { class: 'muted small' }, 'اطلب من أبوك أو أمك يفتحون لك "كود الدخول" وامسحه بكاميرا جوالك'))),
-    switcher));
+    switcher,
+    el('p', { class: 'center muted small version-tag' }, `الإصدار ${APP_VERSION}`)));
 }
 
 function newPasswordSheet() {
@@ -482,7 +507,9 @@ async function shell(tab, title, fill) {
     ? [['chats', '/', 'chat', 'المحادثات'], ['friends', '/friends', 'users', 'الأصدقاء'], ['games', '/games', 'game', 'الألعاب'], ['family', '/family', 'home', 'العائلة']]
     : [['chats', '/', 'chat', 'المحادثات'], ['friends', '/friends', 'users', 'الأصدقاء'], ['games', '/games', 'game', 'الألعاب'], ['me', '/me', 'user', 'حسابي']];
   const isSubMe = tab === 'me' && S.me.role === 'parent';
-  const main = el('main', { class: 'page' }, skeletonRows(4));
+  // نعرض آخر محتوى للتبويب فوراً (بدل شاشة تحميل) ونحدّثه بالخلفية
+  const cached = tabCache.get(tab);
+  const main = el('main', { class: 'page' }, ...(cached || [skeletonRows(4)]));
   const header = el('header', { class: 'appbar' },
     el('div', { class: 'appbar-top' },
       isSubMe ? el('button', { class: 'icon-btn', 'aria-label': 'رجوع', onclick: () => back('/family') }, icon('back')) : null,
@@ -494,9 +521,14 @@ async function shell(tab, title, fill) {
       el('span', { class: 'ti' }, icon(ic), el('i', { class: 'dot' })), el('span', { class: 'tl' }, label))));
   app.replaceChildren(el('div', { class: 'shell' + (isSubMe ? ' no-tabs' : '') }, header, main, isSubMe ? null : navEl));
 
-  const refresh = async () => { const node = await fill(); main.replaceChildren(...[].concat(node).filter(Boolean)); };
+  const refresh = async () => {
+    const nodes = [].concat(await fill()).filter(Boolean);
+    if (!main.isConnected) return; // المستخدم راح لصفحة ثانية
+    main.replaceChildren(...nodes);
+    tabCache.set(tab, nodes);
+  };
   await refresh();
-  if (!isSubMe) updateBadges(navEl);
+  if (!isSubMe) updateBadges(navEl, tab === 'chats');
   const offs = [
     bus.on('refresh-chats', debounce(() => { if (tab === 'chats') refresh().catch(() => {}); if (!isSubMe) updateBadges(navEl); }, 500)),
     bus.on('refresh-tab', () => refresh().catch((e) => toast(niceError(e), 'err'))),
@@ -504,9 +536,13 @@ async function shell(tab, title, fill) {
   addCleanup(() => offs.forEach((f) => f()));
 }
 
-async function updateBadges(navEl) {
+const tabCache = new Map();
+let lastConvs = null;
+
+async function updateBadges(navEl, fresh = false) {
   try {
-    const convs = await rpc('my_conversations');
+    // تبويب المحادثات جاب القائمة للتو، فما نطلبها مرة ثانية
+    const convs = fresh && lastConvs ? lastConvs : await rpc('my_conversations');
     S.memberConvs = new Set(convs.map((c) => c.id));
     setDot(navEl, 'chats', convs.reduce((a, c) => a + (c.unread || 0), 0));
     if (S.me.role === 'parent') {
@@ -553,6 +589,7 @@ function contactRow(p, onclick, extra) {
 // ---------- المحادثات ----------
 async function tabChats() {
   const list = await rpc('my_conversations');
+  lastConvs = list;
   S.memberConvs = new Set(list.map((c) => c.id));
   const listBox = el('div', { class: 'list' });
   const drawList = (q = '') => {
@@ -941,7 +978,7 @@ async function tabMe() {
       settingRow({ ic: 'logout', tone: 'red', title: 'تسجيل خروج', onclick: async () => {
         if (await ask('تسجيل خروج؟', { ok: 'خروج', danger: true, detail: 'بتحتاج الإيميل وكلمة المرور عشان ترجع' })) { await dropPush(); await sb.auth.signOut(); }
       } })) : null,
-    el('p', { class: 'center muted small' }, `${APP_NAME} · نسخة 1.1`),
+    el('p', { class: 'center muted small version-tag' }, `${APP_NAME} · الإصدار ${APP_VERSION}`),
   ];
 }
 

@@ -23,6 +23,9 @@ export async function renderChat(app, convId) {
   S.currentConv = convId;
   addCleanup(() => { S.currentConv = null; stopActiveAudio(); });
 
+  // نجيب الرسائل مع معلومات المحادثة بنفس الوقت (بدل وحدة ورا الثانية) عشان تنفتح أسرع
+  const msgsReq = Promise.resolve(sb.from('messages').select('*')
+    .eq('conversation_id', convId).order('created_at', { ascending: false }).limit(100));
   const [info, me] = await Promise.all([rpc('conversation_info', { p_conv: convId }), rpc('my_profile')]);
   if (me) S.me = me;
   const members = new Map(info.members.map((m) => [m.id, m]));
@@ -64,8 +67,7 @@ export async function renderChat(app, convId) {
   const myViews = new Map(); // messageId -> عدد مرات مشاهدتي
 
   scroller.append(spinner());
-  const { data: rows, error } = await sb.from('messages').select('*')
-    .eq('conversation_id', convId).order('created_at', { ascending: false }).limit(100);
+  const { data: rows, error } = await msgsReq;
   if (error) throw error;
   rows.reverse().forEach((m) => msgs.push(m));
   const onceIds = msgs.filter((m) => m.view_once).map((m) => m.id);
