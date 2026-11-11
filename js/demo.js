@@ -193,7 +193,9 @@ export function createDemoClient(role, supabaseUrl) {
       return null;
     },
     send_friend_request: () => ({ name: 'نورة', avatar: '🦄' }),
-    create_pairing: () => 'demo' + Math.random().toString(36).slice(2),
+    create_pairing: () => ({ token: 'demo' + Math.random().toString(36).slice(2), code: '12345678' }),
+    claim_pairing: () => meId,
+    claim_pairing_code: ({ p_code }) => (p_code === '12345678' ? meId : null),
     start_game: ({ p_conv, p_kind, p_opponent }) => {
       const id = 'g' + (++seq);
       const board = p_kind === 'xo' ? Array(9).fill('') : Array(42).fill('');

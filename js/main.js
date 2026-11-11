@@ -8,7 +8,7 @@ import { renderChat } from './chat.js';
 import { renderGame, GAMES, SOLO, startGame } from './games.js';
 
 // رقم الإصدار: يظهر في "حسابي" وتحت شاشة الدخول. نرفعه مع كل تحديث (ونغيّر CACHE في sw.js معه)
-export const APP_VERSION = '1.7';
+export const APP_VERSION = '1.8';
 
 const app = document.getElementById('app');
 let routeSeq = 0;
@@ -107,7 +107,7 @@ async function route() {
   while (closeTopOverlay()) { /* اقفل أي نافذة مفتوحة */ }
   const { parts, params } = parsePath();
   try {
-    if (parts[0] === 'pair') return await renderPair(params.get('t'));
+    if (parts[0] === 'pair') return await renderPair(params.get('t'), params.get('c'));
     if (!S.session) return renderAuth();
     if (!S.me) S.me = await rpc('my_profile');
     if (seq !== routeSeq) return;
@@ -412,9 +412,7 @@ function renderAuth() {
   app.replaceChildren(el('div', { class: 'center-page auth' },
     el('div', { class: 'hero' }, brandMark(true), el('h1', null, APP_NAME), el('p', { class: 'muted' }, 'دردشة آمنة تجمع العائلة')),
     el('div', { class: 'card' }, title, form),
-    el('div', { class: 'card kid-card' },
-      el('span', { class: 'kid-ic' }, icon('qr')),
-      el('div', null, el('b', null, 'أنت طفل؟'), el('p', { class: 'muted small' }, 'اطلب من أبوك أو أمك يفتحون لك "كود الدخول" وامسحه بكاميرا جوالك'))),
+    kidCodeCard(),
     switcher,
     el('p', { class: 'center muted small version-tag' }, `الإصدار ${APP_VERSION}`)));
 }
@@ -430,7 +428,49 @@ function newPasswordSheet() {
   }, btn);
 }
 
-async function renderPair(token) {
+const fmtPairCode = (c) => String(c).replace(/^(\d{4})(\d{4})$/, '$1 $2');
+
+// بطاقة "أنت طفل؟" في شاشة الدخول: يكتب الكود اللي عند أهله
+function kidCodeCard() {
+  const input = el('input', { class: 'input pair-input', inputmode: 'numeric', autocomplete: 'one-time-code', dir: 'ltr', maxlength: '9', placeholder: '1234 5678' });
+  const btn = el('button', { class: 'btn primary block' }, 'دخول');
+  btn.onclick = () => claimByCode(input.value, btn);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
+  return el('div', { class: 'card kid-card stack' },
+    el('div', { class: 'kid-top' }, el('span', { class: 'kid-ic' }, icon('qr')),
+      el('div', null, el('b', null, 'أنت طفل؟'),
+        el('p', { class: 'muted small' }, 'اطلب من أبوك أو أمك "كود الدخول": امسحه بالكاميرا، أو اكتب الرقم اللي تحته هنا'))),
+    input, btn);
+}
+
+async function claimByCode(raw, btn) {
+  const code = toLatinDigits(String(raw || '')).replace(/\D/g, '');
+  if (code.length !== 8) return toast('الكود 8 أرقام', 'err');
+  await guard(async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && !session.user.is_anonymous) throw new Error('هذا الجهاز مسجّل عليه حساب ولي أمر');
+    let created = false;
+    if (!session) {
+      const { data, error } = await sb.auth.signInAnonymously();
+      if (error) throw error;
+      S.session = data.session; created = true;
+    }
+    const id = await rpc('claim_pairing_code', { p_code: code });
+    if (!id) {
+      if (created) await sb.auth.signOut(); // نرجع لشاشة الدخول نظيفة
+      throw new Error('الكود غلط أو منتهي، تأكد منه أو اطلب كود جديد');
+    }
+    S.me = null;
+    toast('أهلاً فيك! 🎉', 'ok');
+    goRoot('/');
+  }, btn);
+}
+
+async function renderPair(token, code) {
+  // آيفون في Safari: الدخول هنا ما ينتقل للتطبيق اللي على الشاشة الرئيسية،
+  // فنعلّمه يثبّت التطبيق ويكتب الرقم من داخله
+  const forceIOS = DEMO && new URLSearchParams(location.search).has('ios'); // للتجربة فقط
+  if ((isIOS() && !isStandalone()) || forceIOS) return renderPairIOS(code);
   app.replaceChildren(el('div', { class: 'center-page' }, el('div', { class: 'card center' }, spinner(), el('p', null, 'جاري تسجيل الدخول...'))));
   try {
     if (!token) throw new Error('الرابط ناقص، امسح الكود مرة ثانية');
@@ -452,6 +492,23 @@ async function renderPair(token) {
       el('div', { class: 'empty-art' }, '😕'), el('h3', null, 'ما قدرنا ندخل'), el('p', { class: 'muted' }, niceError(e)),
       el('button', { class: 'btn soft', onclick: () => goRoot('/') }, 'رجوع'))));
   }
+}
+
+function renderPairIOS(code) {
+  app.replaceChildren(el('div', { class: 'center-page' },
+    el('div', { class: 'hero' }, brandMark(true), el('h1', null, 'خطوة أخيرة 📲'),
+      el('p', { class: 'muted' }, 'في الآيفون لازم تدخل من التطبيق نفسه')),
+    code ? el('div', { class: 'card center stack' },
+      el('small', { class: 'muted' }, 'رقم الدخول حقك'),
+      el('b', { class: 'pair-code big', dir: 'ltr' }, fmtPairCode(code)),
+      el('button', { class: 'btn soft sm', onclick: () => copy(code) }, icon('copy'), 'نسخ الرقم'))
+      : el('div', { class: 'note warn' }, icon('alert'), 'اطلب من أهلك يفتحون كود دخول جديد، تحته رقم تكتبه داخل التطبيق'),
+    el('div', { class: 'card' }, el('div', { class: 'steps' },
+      el('div', null, el('span', null, '1'), 'اضغط زر المشاركة ⬆️ تحت في Safari'),
+      el('div', null, el('span', null, '2'), 'اختر "إضافة إلى الشاشة الرئيسية" ← إضافة'),
+      el('div', null, el('span', null, '3'), 'افتح "سوالف العائلة" من الشاشة الرئيسية'),
+      el('div', null, el('span', null, '4'), 'اكتب الرقم في خانة "أنت طفل؟" واضغط دخول'))),
+    el('p', { class: 'center muted small' }, 'الرقم ينتهي بعد 15 دقيقة. إذا كان التطبيق مثبّت من قبل، افتحه على طول واكتب الرقم')));
 }
 
 function renderAnonNoProfile() {
@@ -898,8 +955,11 @@ function addChildSheet() {
 
 let QRLib;
 async function showPairQR(child) {
-  const token = await rpc('create_pairing', { p_child: child.id });
-  const url = `${location.origin}${location.pathname}#/pair?t=${token}`;
+  const res = await rpc('create_pairing', { p_child: child.id });
+  // التحديث 7 يرجع {token, code}، والقديم يرجع token بس
+  const token = typeof res === 'string' ? res : res.token;
+  const code = typeof res === 'string' ? null : res.code;
+  const url = `${location.origin}${location.pathname}#/pair?t=${token}${code ? '&c=' + code : ''}`;
   if (!QRLib) { const m = await import('https://cdn.jsdelivr.net/npm/qrcode@1.5.3/+esm'); QRLib = m.default || m; }
   const canvas = el('canvas', { class: 'qr' });
   await QRLib.toCanvas(canvas, url, { width: 240, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#1b1640', light: '#ffffff' } });
@@ -914,11 +974,14 @@ async function showPairQR(child) {
   sheet(`كود دخول ${child.name}`, el('div', { class: 'stack center' },
     el('p', null, 'افتح كاميرا جوال ', el('b', null, child.name), ' وامسح الكود'),
     el('div', { class: 'qr-box' }, canvas),
+    code ? el('div', { class: 'pair-code-box' },
+      el('small', { class: 'muted' }, 'أو يكتب هالرقم داخل التطبيق (للآيفون):'),
+      el('b', { class: 'pair-code', dir: 'ltr', onclick: () => copy(code) }, fmtPairCode(code))) : null,
     timer,
     el('div', { class: 'steps' },
       el('div', null, el('span', null, '1'), 'الكود يُستخدم مرة وحدة، والجهاز القديم يطلع تلقائياً'),
-      el('div', null, el('span', null, '2'), 'آيفون: مشاركة ⬆️ ← إضافة إلى الشاشة الرئيسية'),
-      el('div', null, el('span', null, '3'), 'أندرويد: ⋮ ← تثبيت التطبيق')),
+      el('div', null, el('span', null, '2'), 'آيفون: أضف التطبيق للشاشة الرئيسية أول (مشاركة ⬆️ ← إضافة إلى الشاشة الرئيسية)، افتحه من الأيقونة، واكتب الرقم'),
+      el('div', null, el('span', null, '3'), 'أندرويد: امسح الكود بالكاميرا، بعدين ⋮ ← تثبيت التطبيق')),
     el('button', { class: 'btn soft sm', onclick: () => copy(url) }, icon('link'), 'نسخ الرابط بدل الكود')),
   { onClose: () => clearInterval(iv) });
 }

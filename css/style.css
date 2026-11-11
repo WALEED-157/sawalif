@@ -225,6 +225,12 @@ code, .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; 
 .brand-mark.big .ic { width: 42px; height: 42px; }
 .auth::before { content: ''; position: fixed; inset: 0 0 auto 0; height: 46vh; background: radial-gradient(120% 90% at 50% 0%, var(--primary-soft), transparent 70%); z-index: -1; }
 .kid-card { display: flex; gap: 14px; align-items: center; }
+.kid-card.stack { flex-direction: column; align-items: stretch; gap: 10px; }
+.kid-top { display: flex; gap: 14px; align-items: center; }
+.pair-input { text-align: center; font-size: 22px !important; letter-spacing: .18em; font-weight: 600; }
+.pair-code-box { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.pair-code { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 30px; letter-spacing: .12em; color: var(--primary); background: var(--primary-soft); padding: 6px 16px; border-radius: 14px; cursor: pointer; }
+.pair-code.big { font-size: 38px; }
 .kid-ic { width: 48px; height: 48px; border-radius: 16px; background: var(--warn-soft); color: var(--warn); display: grid; place-items: center; flex-shrink: 0; }
 .kid-ic .ic { width: 26px; height: 26px; }
 
